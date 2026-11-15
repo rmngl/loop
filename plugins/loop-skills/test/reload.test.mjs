@@ -11,14 +11,12 @@ import { apply } from "../plugin.js";
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const workingSpawn = async (_id, { args }) => {
+const workingSpawn = async (_id, { args, onStdout }) => {
   const child = realSpawn(process.execPath, args);
-  let listener;
   child.stdout.setEncoding("utf8");
-  child.stdout.on("data", (d) => { if (listener) listener(d); });
+  child.stdout.on("data", (d) => onStdout?.(d));
   const exited = new Promise((done) => child.on("exit", () => done(0)));
   return {
-    onStdout: (fn) => { listener = fn; },
     exited,
     write: async (data) => { child.stdin.write(data); },
     end: async () => { child.stdin.end(); },

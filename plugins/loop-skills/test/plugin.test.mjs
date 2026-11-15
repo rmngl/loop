@@ -48,17 +48,15 @@ async function fakeCtx() {
     },
     host: {
       resolveDirectory: async () => root,
-      spawn: async (_id, { args }) => {
+      spawn: async (_id, { args, onStdout }) => {
         const { spawn: realSpawn } = await import("node:child_process");
         const child = realSpawn(process.execPath, args);
-        // The host delivers stdout through the option, not the return value, so
-        // the fake does too — anything else would not exercise the real seam.
-        let listener;
+        // The host takes onStdout as an OPTION and the returned object has no
+        // such method, so the fake must match or it hides a silent bug.
         child.stdout.setEncoding("utf8");
-        child.stdout.on("data", (d) => { if (listener) listener(d); });
+        child.stdout.on("data", (d) => onStdout?.(d));
         const exited = new Promise((done) => child.on("exit", () => done(0)));
         return {
-          onStdout: (fn) => { listener = fn; },
           exited,
           write: async (data) => { child.stdin.write(data); },
           end: async () => { child.stdin.end(); },
@@ -77,7 +75,10 @@ async function fakeCtx() {
 }
 
 test("inject names exactly the services apply touches", () => {
-  assert.deepEqual([...inject].sort(), ["agents", "host", "notifications", "settingsCards"]);
+  // `react` is required: LibraryCard builds the Settings card from ctx.react
+  // (`src/plugins/api.ts:96`). See test/host-contract.test.mjs.
+  assert.deepEqual([...inject].sort(),
+    ["agents", "host", "notifications", "react", "settingsCards"]);
 });
 
 test("apply registers three tools and one notification", async () => {

@@ -12,7 +12,11 @@
 // It registers no agent tab in v1: that surface is not on the documented steady
 // set, and the settings card is canonical. A tab is a later convenience.
 
-export const inject = ["agents", "settingsCards", "notifications", "host"];
+// `react` is in the list because LibraryCard reads `ctx.react` to build the
+// Settings card (`src/plugins/api.ts:96`). Omitting it gives an undefined React
+// on the real host — which the injection test caught, not the card tests, because
+// the fakes supplied React unconditionally.
+export const inject = ["react", "agents", "settingsCards", "notifications", "host"];
 
 const SKILLS_ROOT = "~/.buzz/SKILLS";
 
@@ -22,9 +26,15 @@ const SKILLS_ROOT = "~/.buzz/SKILLS";
  */
 function makeSpawn(ctx, timeoutMs = 20_000) {
   return async (command, payload) => {
-    const child = await ctx.host.spawn("skills", { args: helperArgs() });
     let stdout = "";
-    child.onStdout?.((data) => { stdout += data; });
+    // `onStdout` is an OPTION of spawn, not a method on what it returns
+    // (`src/features/host/service.ts:125,388-390`). The returned object has only
+    // write, end, kill, exited — so reading stdout afterwards is impossible.
+    // Passing it here is the whole reason a helper reply reaches the plugin.
+    const child = await ctx.host.spawn("skills", {
+      args: helperArgs(),
+      onStdout: (data) => { stdout += data; },
+    });
     const collected = new Promise((resolve) => {
       child.exited.then(() => resolve(stdout)).catch(() => resolve(stdout));
     });
@@ -71,7 +81,12 @@ export function apply(ctx) {
       announced.add(slug);
       await submit({
         sourceKey: slug,
-        target: { version: 1, kind: "plugin", pluginId: "loop.skills", pageId: "library" },
+        // Not `kind: "plugin"` with pageId "library": this plugin registers a
+        // Settings CARD, not a page, so that target would open nothing. A card is
+        // reached with `kind: "settings"` + `pluginId`, which the targets parser
+        // accepts only when section is "plugins"
+        // (`src/features/navigation/targets.ts:298-322`).
+        target: { version: 1, kind: "settings", section: "plugins", pluginId: "loop.skills" },
         title: "스킬 초안",
         body: String(name ?? slug),
       });
