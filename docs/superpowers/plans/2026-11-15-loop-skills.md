@@ -1148,10 +1148,17 @@ In `plugin.js`, the real `register` must be:
 const holder = new InjectionHolder((text) => {
   const scope = ctx.plugin({ inject: ["agents"], apply: (child) => child.agents.addInstructions({ id: "skills-index", text }) });
   return () => scope.dispose();
-}, () => {});
+}, (error) => console.warn("loop.skills: could not update the skills block", error));
 ```
 
-and `ctx.effect(() => () => holder.dispose())` owns it. After every successful `skills_draft`, `approve`, `adopt`, `reject`, or `archive`, re-read the approved set and call `holder.set(...)` — so a decision takes effect on the next turn.
+and `ctx.effect(() => () => holder.dispose())` owns it. Call `holder.set(...)` once at startup — the zero-skill block must be live from the first turn — and again after every tool call, so a decision takes effect on the next turn.
+
+**What a reload actually does, measured in both orders** (`test/reload.test.mjs`):
+
+- **Host order: dispose, then apply.** Revision 1's effect cleanup removes its block; revision 2 registers one. Net result exactly one block. This is the real path and it is clean.
+- **Both revisions alive at once.** Revision 2's `addInstructions` throws with `instructions skills-index already registered`, because revision 1 owns a scope revision 2 cannot dispose. The correct behaviour is to **keep revision 1's block and report** — it is still delivering approved procedures. Retrying cannot help, and deleting the live block would be strictly worse. `InjectionHolder` therefore leaves the old text live and calls `onError`. Its `#text` resets to `undefined`, so the next refresh retries registration once revision 1 is gone.
+
+Do not "fix" this by giving each revision a unique id: two blocks would then be appended to every turn during the overlap, doubling the index.
 
 - [ ] **Step 4: Run the tests**
 

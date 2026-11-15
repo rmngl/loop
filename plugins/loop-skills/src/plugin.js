@@ -80,6 +80,41 @@ export function apply(ctx) {
 
   const deps = () => ({ spawn, root: root ?? "", notifyDraft, timeoutMs: 20_000 });
 
+  // Owns the <plugin-instructions> block. A child scope is used because
+  // addInstructions has no removal handle of its own, and registering the same
+  // id twice throws — so replacing the block means disposing the scope.
+  const holder = new InjectionHolder(
+    (text) => {
+      const scope = ctx.plugin({
+        inject: ["agents"],
+        apply: (child) => child.agents.addInstructions({ id: "skills-index", text }),
+      });
+      return () => scope.dispose();
+    },
+    (error) => console.warn("loop.skills: could not update the skills block", error),
+  );
+  const refresh = async () => {
+    try {
+      if (!(await rootReady) || !root) return;
+      const reply = parseReply((await spawn("list", { root })).stdout);
+      if (!reply.ok) return;
+      const entries = (reply.data?.skills ?? [])
+        .filter((s) => s.state === "approved")
+        .map((s) => ({
+          slug: s.slug,
+          description: s.description,
+          approvedAt: Date.parse(s.approvedAt) || 0,
+        }));
+      holder.set(entries, { language: "ko", skillsRoot: root });
+    } catch {
+      // A failed refresh must not kill a turn, and the previous block stays
+      // live. This is the normal state with no desktop host, so it is not
+      // logged: a warning per turn is noise, not information.
+    }
+  };
+
+  ctx.effect(() => () => holder.dispose());
+
   for (const tool of TOOLS) {
     ctx.agents.addTool({
       name: tool.name,
@@ -90,8 +125,16 @@ export function apply(ctx) {
         if (!root) {
           return `I can't reach the skills folder (${rootFailed ?? "it did not resolve"}). Procedures need the desktop app.`;
         }
-        return callTool(deps(), tool.name, args ?? {}, context ?? {});
+        const reply = await callTool(deps(), tool.name, args ?? {}, context ?? {});
+        // A draft changes nothing an agent can see, but a decision does; refresh
+        // after every call so an approval takes effect on the next turn.
+        void refresh();
+        return reply;
       },
     });
   }
+
+  // The zero-skill block must be live from the very first turn, not after the
+  // first draft: it is the only thing that tells an agent drafting exists.
+  void refresh();
 }

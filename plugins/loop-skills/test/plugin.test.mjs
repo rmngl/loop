@@ -82,11 +82,14 @@ test("apply registers three tools and one notification", async () => {
   assert.deepEqual(f.tools.map((t) => t.name).sort(), ["skills_draft", "skills_list", "skills_read"]);
   assert.equal(f.notifications.length, 1);
   assert.equal(f.notifications[0].id, "draft");
-  // Neither the settings card nor the injection block exist yet: Tasks 7 and 8
-  // add them. Asserting them here would make this test fail until those land,
-  // which is not a defect in this one.
+  // The settings card is Task 8; asserting it here would make this test fail
+  // until that lands, which is not a defect in this one.
   assert.equal(f.cards.length, 0, "Task 8 adds the library card");
-  assert.equal(f.instructions.length, 0, "Task 7 adds the injection block");
+  // The injection block must exist from the first turn, and only once.
+  assert.equal(f.instructions.length, 1, "one block, registered at startup");
+  assert.equal(f.instructions[0].id, "skills-index");
+  assert.match(f.instructions[0].text, /skills_draft/);
+  assert.equal(f.effects.length, 1, "the block is owned by an effect");
 });
 
 test("skills_draft through the real spawn writes a draft and notifies once", async () => {
