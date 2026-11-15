@@ -368,11 +368,16 @@ const entries = (n, descriptionChars) =>
   }));
 
 test("zero approved skills still instructs the agent to draft", () => {
-  const { text, included } = buildInjection([], { language: "ko" });
-  assert.equal(included, 0);
-  assert.match(text, /skills_draft/);
-  assert.match(text, /No approved skills yet/);
-  assert.ok(utf8Length(text) < 600, `zero state is ${utf8Length(text)} bytes`);
+  const ko = buildInjection([], { language: "ko" });
+  assert.equal(ko.included, 0);
+  assert.match(ko.text, /skills_draft/);
+  assert.match(ko.text, /아직 승인된 스킬이 없습니다/);
+  assert.ok(utf8Length(ko.text) < 600, `zero state is ${utf8Length(ko.text)} bytes`);
+  // The empty state is written in the workspace language, not in English.
+  const en = buildInjection([], { language: "en" });
+  assert.match(en.text, /No approved skills yet/);
+  assert.match(en.text, /skills_draft/);
+  assert.equal(en.text.includes("승인된"), false);
 });
 
 test("never exceeds the cap, even with 100 Korean entries", () => {
@@ -421,6 +426,8 @@ Expected: FAIL — no module `../src/index.js`.
 - [ ] **Step 3: Implement `src/index.js`**
 
 Truncation rule the tests require but do not spell out: build the full text, then while `utf8Length(text) > INJECT_LIMIT` drop the **last** line of the list; if the list is empty and it still overflows, cut the longest description at a character boundary until it fits. Header and footer are never cut, so the footer must be short (one line each for the read instruction and the draft instruction). Report `{ included, dropped }` so the library can show how many entries the prompt does not carry.
+
+**Language, and a test this plan first got wrong.** The zero-skill test as written demanded `/No approved skills yet/` from a `language: "ko"` block — it contradicted spec §7.7 and failed. The zero state is written in the **workspace language**; the test now asserts the Korean sentence for `ko` and the English one for `en`, and asserts they do not leak into each other. Separately, the list version had no `skills_list` mention at all, which the "always names the tool prefix" test caught — real defect, fixed by a footer line, not by weakening the test.
 
 - [ ] **Step 4: Run the tests**
 
