@@ -137,4 +137,41 @@ export function apply(ctx) {
   // The zero-skill block must be live from the very first turn, not after the
   // first draft: it is the only thing that tells an agent drafting exists.
   void refresh();
+
+  if (ctx.settingsCards?.register) {
+    try {
+      const Library = LibraryCard(ctx, {
+        spawn,
+        root: () => root ?? "",
+        parse: (promise) => promise.then((r) => parseReply(r.stdout)),
+        refresh,
+      });
+      ctx.settingsCards.register({ id: "library", title: "Skills", component: Library });
+    } catch (error) {
+      // A card that will not build must not take the tools down with it.
+      console.warn("loop.skills: could not register the skills library", error);
+    }
+  }
+
+  // The AGENTS.md pointer tells an agent's *file* tools where the index is, for
+  // the case where tools are unavailable but files are not. It is additive and
+  // marked, so it is removed cleanly on unload.
+  ctx.effect(() => {
+    let agentsFile;
+    const write = async () => {
+      try {
+        if (!(await rootReady) || !root) return;
+        const dir = await ctx.host.resolveDirectory("~/.buzz", { create: false });
+        agentsFile = `${dir}/AGENTS.md`;
+        await spawn("pointer", { root, add: true, agentsFile });
+      } catch {
+        // No desktop host, or no AGENTS.md: the pointer is a convenience only.
+      }
+    };
+    void write();
+    return () => {
+      if (!agentsFile || !root) return;
+      void spawn("pointer", { root, add: false, agentsFile }).catch(() => {});
+    };
+  });
 }

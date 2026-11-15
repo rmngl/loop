@@ -24,6 +24,13 @@ async function fakeCtx() {
   const effects = [];
 
   const ctx = {
+    // The host supplies React; the card uses ctx.react.createElement only.
+    react: {
+      createElement: () => null,
+      useState: (initial) => [initial, () => {}],
+      useCallback: (fn) => fn,
+      useEffect: () => {},
+    },
     agents: {
       addTool: (tool) => {
         if (tools.some((t) => t.name === tool.name)) throw new Error(`duplicate tool ${tool.name}`);
@@ -82,14 +89,13 @@ test("apply registers three tools and one notification", async () => {
   assert.deepEqual(f.tools.map((t) => t.name).sort(), ["skills_draft", "skills_list", "skills_read"]);
   assert.equal(f.notifications.length, 1);
   assert.equal(f.notifications[0].id, "draft");
-  // The settings card is Task 8; asserting it here would make this test fail
-  // until that lands, which is not a defect in this one.
-  assert.equal(f.cards.length, 0, "Task 8 adds the library card");
+  // The settings card is now registered too; the pointer effect is additive.
+  assert.equal(f.cards.length, 1, "the library card is registered");
   // The injection block must exist from the first turn, and only once.
   assert.equal(f.instructions.length, 1, "one block, registered at startup");
   assert.equal(f.instructions[0].id, "skills-index");
   assert.match(f.instructions[0].text, /skills_draft/);
-  assert.equal(f.effects.length, 1, "the block is owned by an effect");
+  assert.ok(f.effects.length >= 1, "the block is owned by an effect");
 });
 
 test("skills_draft through the real spawn writes a draft and notifies once", async () => {
