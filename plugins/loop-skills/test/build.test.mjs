@@ -15,11 +15,13 @@ test("build emits one module whose only export is apply", async () => {
   assert.equal(/^import\s/m.test(codeOnly), false, "plugin.js must contain no top-level import");
   assert.equal(/^\s*export\s+.*\bfrom\s/m.test(codeOnly), false, "no re-exports");
   const exported = [...codeOnly.matchAll(/^export\s+/gm)];
-  assert.equal(exported.length, 1, "the entry keeps exactly one export, apply");
+  assert.equal(exported.length, 2, "the module exports exactly inject and apply");
+  assert.match(codeOnly, /^export const inject\s*=/m);
   assert.match(codeOnly, /^export function apply\(/m);
   // Proves it is a real module the host can import, not just text that looks right.
-  const { apply } = await import(`../plugin.js?built=${Date.now()}`);
-  assert.equal(typeof apply, "function");
+  const mod = await import(`../plugin.js?built=${Date.now()}`);
+  assert.equal(typeof mod.apply, "function");
+  assert.ok(Array.isArray(mod.inject));
 });
 
 /** Replace the body of every template literal with nothing, keeping the code. */

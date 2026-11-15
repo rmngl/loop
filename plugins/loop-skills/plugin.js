@@ -756,9 +756,264 @@ function parseReply(stdout) {
   return { ok: false, error: "helper printed no result" };
 }
 
+// ---- src/tools.js ----
+// The three tools an agent can call. Every failure is a sentence the agent can
+// act on — nothing here throws into a turn, because a thrown tool error ends the
+// agent's work rather than teaching it.
+
+
+const slug = {
+  type: "string",
+  minLength: 1,
+  maxLength: SLUG_MAX,
+  pattern: "^[a-z0-9][a-z0-9._-]*$",
+};
+
+const TOOLS = [
+  {
+    name: "skills_list",
+    description:
+      "List the procedures the owner has approved. Returns one slug and one line each. Call skills_read before doing a task one of them covers.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "skills_read",
+    description:
+      "Read one approved procedure in full by slug. Drafts are not readable until the owner approves them.",
+    inputSchema: {
+      type: "object",
+      properties: { slug },
+      required: ["slug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "skills_draft",
+    description:
+      "Propose a repeatable procedure for the owner to review. Use it once when a task taught you something you would otherwise have to be told again. The draft is not visible to any agent until the owner approves it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: { ...slug, description: "Short kebab-case id, e.g. weekly-sales-report" },
+        name: { type: "string", minLength: 1, maxLength: 80 },
+        description: { type: "string", minLength: 1, maxLength: DESCRIPTION_MAX, description: "One line saying when to use it" },
+        body: { type: "string", minLength: 1, maxLength: 61440, description: "The procedure, in markdown" },
+        why: { type: "string", minLength: 1, maxLength: 400, description: "One line: what would have to be re-explained next time" },
+      },
+      required: ["slug", "name", "description", "body", "why"],
+      additionalProperties: false,
+    },
+  },
+];
+
+/** One `spawn` call, with a timeout so a hung helper does not hold the turn. */
+async function send(deps, command, payload) {
+  const timeoutMs = deps.timeoutMs ?? 20_000;
+  let timer;
+  try {
+    // A spawn failure is a normal outcome (no desktop, no permission), so it is
+    // converted here rather than escaping to the outer catch, which would report
+    // it without the sentence the agent needs.
+    const work = (async () => {
+      try {
+        const result = await deps.spawn(command, payload);
+        return parseReply(result?.stdout);
+      } catch (error) {
+        return { ok: false, error: String(error?.message ?? error) };
+      }
+    })();
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => resolve({ ok: false, error: `the ${command} step did not finish in time` }), timeoutMs);
+    });
+    return await Promise.race([work, timeout]);
+  } finally {
+    // The timer outlives the call otherwise, which keeps the plugin's process
+    // graph alive for 20 s after every single tool call.
+    clearTimeout(timer);
+  }
+}
+
+function approvedList(skills) {
+  return (Array.isArray(skills) ? skills : [])
+    .filter((s) => s && s.state === "approved")
+    .sort((a, b) => String(b.approvedAt ?? "").localeCompare(String(a.approvedAt ?? "")));
+}
+
+const failureSentence = (reply, command) => {
+  const error = String(reply?.error ?? "");
+  if (/desktop|not available|unsupported/i.test(error)) {
+    return `I couldn't write to the skills folder: ${error}. Procedures need the desktop app.`;
+  }
+  if (/absolute/i.test(error)) return `I couldn't write to the skills folder: ${error}.`;
+  return `I couldn't ${command}: ${error || "the helper returned nothing"}`;
+};
+
+/**
+ * @param deps { spawn: (command, payload) => Promise<{stdout}>, root: string, notifyDraft?: Function, timeoutMs?: number }
+ * @returns a sentence for the agent. Never throws.
+ */
+async function callTool(deps, name, args = {}, context = {}) {
+  try {
+    if (name === "skills_list") {
+      const reply = await send(deps, "list", { root: deps.root });
+      if (!reply.ok) return failureSentence(reply, "read the list of skills");
+      const approved = approvedList(reply.data?.skills);
+      if (approved.length === 0) {
+        return "No approved skills yet. If this task taught you something repeatable, call skills_draft once to propose it.";
+      }
+      const lines = approved.map((s) => `- ${s.slug} — ${s.description || s.name || s.slug}`);
+      return ["Approved skills:", ...lines, "", "Call skills_read with a slug before doing a task one of them covers."].join("\n");
+    }
+
+    if (name === "skills_read") {
+      if (typeof args.slug !== "string" || !args.slug) return "I need a slug to read. Call skills_list first.";
+      const reply = await send(deps, "read", { root: deps.root, slug: args.slug });
+      if (!reply.ok) {
+        return `"${args.slug}" is not readable until the owner approves it. Use skills_list to see what is approved.`;
+      }
+      const body = String(reply.data?.body ?? reply.data?.text ?? "");
+      return body || `"${args.slug}" has no body yet.`;
+    }
+
+    if (name === "skills_draft") {
+      // Checked here, before the disk, so a bad argument costs nothing and the
+      // agent gets the number it violated rather than a helper-internal error.
+      const description = String(args.description ?? "");
+      if ([...description].length > DESCRIPTION_MAX) {
+        return `The description must be at most ${DESCRIPTION_MAX} characters; this one is ${[...description].length}. Shorten it to one line and try again.`;
+      }
+      const reply = await send(deps, "draft", {
+        root: deps.root,
+        slug: args.slug,
+        name: args.name,
+        description,
+        body: args.body,
+        why: args.why,
+        channel: context.channel ?? "",
+        agent: context.agent ?? context.session ?? "agent",
+      });
+      if (!reply.ok) {
+        if (reply.error === "pending") {
+          return `A draft for "${args.slug}" is already waiting for the owner. Do not draft it again.`;
+        }
+        if (reply.error === "rejected") {
+          return `The owner rejected an earlier draft of "${args.slug}"${reply.reason ? `: ${reply.reason}` : "."} Do not resubmit it unchanged; act on the reason.`;
+        }
+        if (reply.error === "already-approved") {
+          return `"${args.slug}" is already an approved skill. Read it instead of drafting it.`;
+        }
+        return failureSentence(reply, "save the draft");
+      }
+      if (typeof deps.notifyDraft === "function") {
+        try { await deps.notifyDraft({ slug: args.slug, name: args.name }); } catch { /* a missed notification is not a failed draft */ }
+      }
+      return `Draft saved and waiting for the owner to review it: ${args.slug}. It is not visible to any agent until they approve it, so keep working without it.`;
+    }
+
+    return `Unknown tool: ${name}`;
+  } catch (error) {
+    return `That did not work: ${String(error?.message ?? error)}`;
+  }
+}
+
+/** The one line the plugin sends per call; kept here so the spawn wiring is tiny. */
+const requestFor = helperRequest;
+
 // ---- src/plugin.js ----
 // Registration only. Everything else is a module above; see scripts/build.mjs.
+//
+// The host loads this module from a blob URL, so it must not import anything and
+// must not do work at top level. `inject` is a module export, not a call.
+//
+// What this registers:
+//   - three agent tools (skills_list, skills_read, skills_draft)
+//   - one <plugin-instructions> block, kept under the host's 4096-byte cap
+//   - a settings card that is the library humans approve from
+//   - one notification, so a draft arrives quietly instead of as a banner
+//
+// It registers no agent tab in v1: that surface is not on the documented steady
+// set, and the settings card is canonical. A tab is a later convenience.
+
+export const inject = ["agents", "settingsCards", "notifications", "host"];
+
+const SKILLS_ROOT = "~/.buzz/SKILLS";
+
+/**
+ * The spawn the tools use. The request travels on stdin, never in argv: Windows
+ * caps a whole command line at 32767 characters and a draft body may be 60 KB.
+ */
+function makeSpawn(ctx, timeoutMs = 20_000) {
+  return async (command, payload) => {
+    const child = await ctx.host.spawn("skills", { args: helperArgs() });
+    let stdout = "";
+    child.onStdout?.((data) => { stdout += data; });
+    const collected = new Promise((resolve) => {
+      child.exited.then(() => resolve(stdout)).catch(() => resolve(stdout));
+    });
+    let timer;
+    try {
+      await child.write(helperRequest(command, payload));
+      await child.end();
+      const timedOut = new Promise((resolve) => {
+        timer = setTimeout(() => resolve(stdout), timeoutMs);
+      });
+      return { stdout: String(await Promise.race([collected, timedOut]) ?? "") };
+    } finally {
+      // An uncleared timer holds the process graph open for 20 s after every
+      // call, which is visible as a test run that takes 20 s per tool test.
+      clearTimeout(timer);
+    }
+  };
+}
+
 export function apply(ctx) {
-  // Tasks 6-9 fill this in.
-  void ctx;
+  let root;
+  let rootFailed;
+  const rootReady = (async () => {
+    try {
+      root = await ctx.host.resolveDirectory(SKILLS_ROOT, { create: true });
+    } catch (error) {
+      // Without a root every tool still answers with a sentence, so a missing
+      // folder is a degraded plugin, not a broken one.
+      rootFailed = String(error?.message ?? error);
+    }
+    return root;
+  })();
+
+  const spawn = makeSpawn(ctx);
+
+  let notifyDraft = async () => {};
+  try {
+    const draftNotification = ctx.notifications.register({ id: "draft", label: "Skill draft" });
+    const announced = new Set();
+    notifyDraft = async ({ slug, name }) => {
+      if (announced.has(slug)) return;
+      announced.add(slug);
+      await draftNotification.submit({
+        sourceKey: slug,
+        target: { version: 1, kind: "plugin", pluginId: "loop.skills", pageId: "library" },
+        title: "스킬 초안",
+        body: String(name ?? slug),
+      });
+    };
+  } catch {
+    // No notifications on this surface; drafting still works.
+  }
+
+  const deps = () => ({ spawn, root: root ?? "", notifyDraft, timeoutMs: 20_000 });
+
+  for (const tool of TOOLS) {
+    ctx.agents.addTool({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+      call: async (_client, context, args) => {
+        await rootReady;
+        if (!root) {
+          return `I can't reach the skills folder (${rootFailed ?? "it did not resolve"}). Procedures need the desktop app.`;
+        }
+        return callTool(deps(), tool.name, args ?? {}, context ?? {});
+      },
+    });
+  }
 }

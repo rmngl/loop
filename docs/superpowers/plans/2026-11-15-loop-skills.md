@@ -956,6 +956,12 @@ export const TOOLS = [
 - Produces from `tools.js`: `callTool({ spawn, root, notifyDraft }, name, args, context) -> Promise<string>`. It never throws: every failure becomes a sentence the agent can act on.
 - Produces from `plugin.js`: `apply(ctx)` that registers all three via `ctx.agents.addTool`, with `call: (client, context, args) => callTool(deps, name, args, context)`.
 
+**Plan defects found by implementing this task, all three real:**
+
+1. **`inject` is a module export, not a call.** The plan said `apply` must "`inject` `["react", "agents", …]`". Wrong twice: `inject` is an exported constant the host reads *before* calling `apply` (`docs/plugin-authoring-guide.md:3,22`), and naming `react` would demand the React service for a plugin that adds no components. The list is `["agents", "settingsCards", "notifications", "host"]`, pinned by a test.
+2. **`makeSpawn`'s timeout leaked.** `Promise.race([collected, timeout])` leaves the losing 20 s timer alive, which holds the event loop: every tool test took 20 seconds. `clearTimeout` in a `finally` — the same fix `callTool` already had — took the suite from 20,813 ms to 1,173 ms.
+3. **A spawn failure bypassed the desktop message.** `deps.spawn` throwing was caught by the outer `try`, so the agent got "That did not work: …" instead of "I couldn't write to the skills folder … Procedures need the desktop app." The spawn now fails inside `send` as an ordinary `{ ok: false, error }` reply.
+
 - [ ] **Step 1: Write the failing tests**
 
 ```js
@@ -1045,7 +1051,13 @@ Expected: PASS (7 tests).
 
 - [ ] **Step 5: Wire the tools into `src/plugin.js` and rebuild**
 
-`apply` must `inject` `["react", "agents", "settingsCards", "notifications", "host", "navigation"]`, resolve the root once with `await ctx.host.resolveDirectory("~/.buzz/SKILLS", { create: true })`, and register the three tools. `notifyDraft` calls the notification submitted in Task 8; for now pass a no-op and leave a `// Task 8` comment.
+`src/plugin.js` must export **`inject`** as a module-level constant and **`apply(ctx)`** as a function. `inject` is NOT a method called inside `apply` — it is a module export the host reads before calling `apply` (`docs/plugin-authoring-guide.md:3,22`; `src/plugins/api.ts:87-91`). Writing `ctx.inject([...])` inside `apply` was the first version of this plan and is silently useless.
+
+The module also must not do work at top level (`plugin-authoring-guide.md:48`): no `resolveDirectory`, no `spawn`, nothing. All of it belongs inside `apply`. `apply` must finish activating within 10 seconds, so the root resolution is awaited by the tool calls, never by `apply` itself.
+
+`apply` must resolve the root once with `await ctx.host.resolveDirectory("~/.buzz/SKILLS", { create: true })` inside a promise held for the tool calls, and register the three tools. A failure to resolve is stored, not thrown: a missing folder is a degraded plugin, not a broken one, and every tool answers with a sentence.
+
+`notifyDraft` calls the notification registered here; Task 8's library uses the same one.
 
 - [ ] **Step 6: Verify it loads in Buzz**
 
