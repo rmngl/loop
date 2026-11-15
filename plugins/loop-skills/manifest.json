@@ -1,0 +1,11 @@
+{
+  "id": "loop.skills",
+  "name": "loop Skills",
+  "apiVersion": 1,
+  "description": "Owner-approved procedures your agents can read, and drafts they can propose.",
+  "discovery": { "category": "agents", "tags": ["agents", "skills", "procedures"] },
+  "host": {
+    "files": true,
+    "processes": [{ "id": "skills", "program": "node", "args": ["--input-type=module"] }]
+  }
+}
