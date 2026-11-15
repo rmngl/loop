@@ -16,6 +16,52 @@ trademark matter, not a licence one. `LICENSE` and `NOTICE.md` stay.
 
 ---
 
+## 0. Start here on another computer
+
+```bash
+git clone https://github.com/rmngl/loop.git          # docs, plans, the skills plugin
+git clone https://github.com/rmngl/loop-app.git      # the fork (private — needs auth)
+cd loop-app && git checkout local-backend
+```
+
+Clone the fork **full, not shallow**. A shallow clone makes the first push fail
+with `did not receive expected object`; `git fetch --unshallow` fixes it after
+the fact.
+
+Prerequisites, all of which the build checks for you:
+
+| Need | Version | Why |
+|---|---|---|
+| Node | 24 (`.node-version`) | Vite 8 and the build scripts |
+| pnpm | 11.8.0 (`packageManager`) | `corepack enable && corepack prepare pnpm@11.8.0 --activate` |
+| Rust | 1.98.1 (`rust-toolchain.toml`) | rustup reads the file, so this is automatic |
+| CMake | any recent | `aws-lc-sys` builds native code; on Windows it hides inside VS BuildTools, off PATH |
+| MSVC + Windows SDK | 2022 BuildTools | required on Windows only |
+
+Then:
+
+```bash
+pnpm install
+node scripts/local-backend-build.mjs --check   # cmake, cargo, pnpm, node — one second
+node scripts/local-backend-build.mjs           # release build, ~9 min on Windows
+```
+
+Run the artifact from `target/release/`. First launch should produce: no
+language screen, no account screen, no community-address screen, a community
+named `내 워크스페이스`, and one channel named `일반` whose composer accepts a
+message. Verified on 2026-11-16 with `--debug` on a fresh profile, including
+sending a message.
+
+Do **not** build with plain `cargo build` — it loads `devUrl` and the window
+shows `ERR_CONNECTION_REFUSED`. Do not build with bare
+`pnpm run tauri build` either: the local-community seed is a build-time variable
+and the script is what sets it.
+
+Where to read next: `loop-app/docs/local-community.md` for how the local backend
+works, and section 9 below for the defect that hid three tasks.
+
+---
+
 ## 1. What works right now
 
 `loop` opens on a fresh machine with **no account and no community address**:
@@ -42,9 +88,10 @@ key; that key lives in `state` as `relay.key` and survives restarts.
 
 ## 3. Where the code is
 
-Fork, branch `local-backend`, 15 commits on top of `a58af0c6`:
+Fork, branch `local-backend`, 16 commits on top of `a58af0c6`:
 
 ```
+76c3ea62  build: one command that builds the local-community app
 25be33cf  fix: recognise the joined request URL as local        (the defect)
 33b6c17c  fix: record what a client asked for, separately from what was written
 f45dd2bd  fix: key the fan-out sink by owner, not one global slot
@@ -75,7 +122,7 @@ New module `src-tauri/src/local_backend/` (~1,800 lines, ~1,460 of them tests):
 | `roster.rs` | 160 | 9000/9001/9021/9022 applied to the 39002 + a 40099 notice |
 | `seed.rs` | 123 | the first channel |
 | `nip11.rs` | 13 | the feature switch |
-| `tests.rs` | 1,459 | 63 tests |
+| `tests.rs` | 1,459 | 65 tests |
 
 Seams outside the module — nine, not the seven the design doc first counted:
 
@@ -181,6 +228,15 @@ clone fresh, clone full or expect the same error.
 - **A build can fail because the app is still running.** `failed to remove file
   …\target\release\Buzz.exe` (os error 5) is the previous launch holding the
   binary, not a compile error. Kill it first.
+- **A `pnpm` on PATH can exist and be broken.** Here it was a copy of
+  `corepack.exe` answering `error: CommandNotFound`. Check that it *runs*
+  (`pnpm --version`), not that the file exists. The build script now writes its
+  own shim and uses it.
+- **Tauri's `beforeBuildCommand` runs in its own shell.** It ends with a bare
+  `pnpm build`, so a corrected PATH in the parent process does not help; the
+  command has to be overridden to an absolute path via `--config`. And in
+  `cmd.exe`, quoting the first token of a `.cmd` invocation makes the quotes part
+  of the program name — quote only if the path contains a space.
 - **Build cost**: ~4 min compile + ~4 min LTO link. Poll the log; do not sleep
   for a fixed time and assume.
 - **Windows + PowerShell quoting** destroys JSON raw strings
@@ -209,6 +265,11 @@ instead of leaking to the internet. That is why it is not `localhost:port`.
 
 - `docs/superpowers/specs/2026-11-15-loop-local-backend-design.md` — the design
   (rev 2). Its seam table is now known to be one short: see seam 6 above.
+- `loop-app/docs/local-community.md` — **the operator's guide**: how to build,
+  what first run should look like, where state lives, what is and is not
+  implemented, and how to debug a first run that does not work.
+- `loop-app/scripts/local-backend-build.mjs` — the build command, with a
+  `--check` mode that verifies cmake/cargo/pnpm/node in one second.
 - `docs/superpowers/plans/2026-11-15-loop-local-backend.md` — the 12 tasks.
   Where its code samples disagree with the crate, the crate wins; the plan was
   wrong about three nostr-0.45.5 APIs and one arithmetic claim.
