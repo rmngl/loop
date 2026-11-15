@@ -1230,12 +1230,14 @@ export function apply(ctx) {
 
   let notifyDraft = async () => {};
   try {
-    const draftNotification = ctx.notifications.register({ id: "draft", label: "Skill draft" });
+    // `register` returns `{ submit }`; submit lives on the returned object, not
+    // on the service (plugin-authoring-guide.md:69).
+    const { submit } = ctx.notifications.register({ id: "draft", label: "Skill draft" });
     const announced = new Set();
     notifyDraft = async ({ slug, name }) => {
       if (announced.has(slug)) return;
       announced.add(slug);
-      await draftNotification.submit({
+      await submit({
         sourceKey: slug,
         target: { version: 1, kind: "plugin", pluginId: "loop.skills", pageId: "library" },
         title: "스킬 초안",
