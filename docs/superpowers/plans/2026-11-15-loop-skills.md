@@ -1337,3 +1337,33 @@ git commit -m "test(skills): acceptance run for <task>"
 **5. Proportion.** The plan is roughly the spec's length; its code blocks are test assertions plus three signatures, not implementations.
 
 **One thing this plan cannot verify.** Tasks 6–8 assume Buzz is installed on this machine. It is not: there is no `~/.buzz`. Tasks 1–5 and 9 run entirely under `node --test` and are verifiable today; Tasks 6, 7, 8 and 10 require the user to install Buzz 1.0 and turn on the Pi plugin first. If that install does not happen, the plan stops being executable at Task 6 — which is the honest boundary, not a scheduling problem.
+
+---
+
+## Implementation record
+
+Executed inline on 2026-11-15, tasks 1–9. **62 tests pass** under `node --test "plugins/loop-skills/test/*.test.mjs"`. `plugin.js` is 54,519 bytes / 1,348 lines, 0 top-level imports, 2 exports (`inject`, `apply`).
+
+### What was proven without Buzz
+
+- The file format, slug rules, and path layout.
+- The 4096-byte injection budget, including 100 Korean entries, and the zero-skill block.
+- The approval state machine, including `broken`, `approved-outside-loop`, and a body that tries to forge front matter.
+- The helper as a **real child process**: every command, 60 KB via stdin, Korean round-trip, `AGENTS.md` pointer add/remove idempotence.
+- `apply` against a ctx shaped like the host's: three tools, one notification, one injection block, library card.
+- **The whole loop**: draft → invisible in the prompt → human approves → the block names the skill → `skills_read` returns it. Plus rejection-with-reason.
+- **Both reload orders** (see Task 7).
+
+### Defects found by executing, not reviewing
+
+Seven, all fixed, all recorded in the task where they were found: the IIFE build emitting `import` inside a function; the template-literal false positive in the import scan; `inject` as a module export rather than a call; two `Promise.race` timers leaking 20 s each; a spawn failure bypassing the desktop message; `stdout` never collected because the fake host ignored `onStdout`; and the library card failing silently on a ctx without `react`.
+
+### What remains unproven, and needs Buzz installed
+
+1. **`ctx.host.spawn` keeping stdin open** long enough for `write(...)` + `end()`. The spike proved Node does; the host's wrapper is a guess.
+2. **`resolveDirectory("~/.buzz/SKILLS", { create: true })`** resolving under the plugin's real owner scope.
+3. **`addInstructions` accepting our text** — the 4 KB arithmetic is ours, the host's byte check is not.
+4. **`ctx.settingsCards.register`** rendering the card, and the notification opening the library.
+5. **Task 10's acceptance run**, which needs a task the user chose.
+
+Task 10 is not marked done: it is the measurement, and measuring requires the installed app.
