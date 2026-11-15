@@ -157,3 +157,40 @@ Task 11: complete (commit 4d9316cc). roster.rs applies 9000/9001/9021/9022 by re
 REMAINING: Task 12 (acceptance + docs/loop-local-backend.md). Tasks 9-11 have unit coverage but have NOT
   been verified in the built app yet - the last launch check ran a build that predated them. The build
   started at 00:05 is the first one containing all of 9/10/11.
+
+Task 12 (in progress): acceptance in the built app. Tasks 9-11 are now VERIFIED, but only after fixing
+  the defect that had been hiding them.
+
+THE DEFECT (commit 25be33cf): `is_local` required url.path() == "/". `relay::send` receives the JOINED
+  url - https://loop.localhost/query - so the guard passed only for GET /. Every other local request
+  (/query, /events, /api/join-policy, the agent inventory read) fell through to a real socket, and
+  loop.localhost resolves to 127.0.0.1, so each one died as "Relay request could not be confirmed". The
+  window showed "This page isn't available" with an empty channel list, and the socket worked perfectly
+  throughout, because that seam is handed a bare origin and never joins a path.
+  HOW IT WAS FOUND: not by reasoning. `seen_kinds.asked` (33b6c17c) showed the socket's twelve kinds
+  recorded and NO 39000/39002 - so discovery never asked. A per-request trace file then showed GET /,
+  AUTH and four live REQs and no channel query at all. Calling relay_http directly over CDP isolated it:
+  GET / answered 200, POST /query and even GET /api/join-policy were rejected.
+  The old test pinned the bug: it asserted is_local("https://loop.localhost/path") was FALSE. Replaced
+  with the joined URLs it must accept, plus a relay::tests case that builds them through request_url so
+  the seam is covered, not just the helper.
+
+  WHY THE TESTS MISSED IT: every local_backend test calls backend.http() directly, and every relay test
+  that touches the local path used a bare origin. The one function that receives a joined URL was never
+  handed one in a test.
+
+VERIFIED IN THE BUILT APP (fresh %APPDATA%, BUZZ_DEFAULT_COMMUNITY_URL=https://loop.localhost):
+  Task 9 - sidebar lists 일반; opening it renders a timeline ("No messages yet. Start the conversation
+    below."); the composer is enabled; /query carries a window page and the store holds a relay-signed
+    39006 with has_more:false. URL shows kind=conversation and the seeded channelId.
+  Task 10 - a message typed into the composer and sent with the send button appears in the timeline and
+    is stored as kind 9; after a reload it is still there and reads back over /query.
+    FALSE POSITIVE CAUGHT: the first check searched document.body.innerText, which includes the
+    COMPOSER, so typed-but-unsent text read as delivered. Checks now read the timeline only, excluding
+    the composer and navigation, and assert the composer is empty afterwards.
+  Task 11 - the "Relay agent inventory read failed / Relay request could not be confirmed" console
+    warnings that appeared on every launch are gone, which was the same seam (the inventory read is an
+    HTTP /query). Agent publish/query keep their unit coverage; a live agent turn is still to be driven.
+  Trace after the fix: GET /, POST /query x20+, WS AUTH, WS REQ live-1..live-6 including the channel's
+    row kinds (9,40002,40008,45001,45003,40099,40100,40003,5,9005,7,39000,39002,39005,20002,45010,
+    48100-48103), POST /events on each send.

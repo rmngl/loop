@@ -86,22 +86,44 @@ the artwork entirely:
 - App icons are generated: a white `l` on a rounded dark square. The old ones
   were copied from Block.
 
-File names like `buzz-mark.svg` are kept: they are referenced from `index.html`,
-`App.tsx`, `ThreadPanel.tsx` and a test, and the name is not visible to anyone.
+File names were changed to match: `public/loop-mark.svg` and
+`public/loop-loading-mark.svg`, with all 9 references updated. Leaving a file
+called `buzz-mark.svg` on disk is exactly the leftover that makes a rename look
+half-done, and one of them is in a `srcSet` the first-run screen loads.
 
 ## Verification
 
 | Check | Result |
 |---|---|
 | `pnpm typecheck` | passes |
-| `cargo check --all-targets` | passes, 4m18s |
+| `cargo check --all-targets` | passes |
 | `src/features/identity/identity.test.tsx` | **230 / 230** |
-| Visible brand text still saying Buzz | 0 (a rescan for `alt`, `aria-label`, `title`, `placeholder`, JSX text, and quoted strings found 9 hits, all inside comments) |
+| Renamed assertions still matching source | **206 / 224** exact-text, 17 assembled at runtime, 1 false positive |
 
 The rescan mattered: the renamer protects whole lines, so `alt="Buzz"` on the
 same line as `src="/buzz-loading-mark.svg"` was skipped twice. That is a real
 failure mode of line-level protection, and it is why the check is by *shape of
 visible text* rather than by file.
+
+## Bugs the rename caused, and how they were found
+
+Every one of these compiled and passed the tests that a reviewer would think to
+run. They were found by running the full suite and by re-reading what the code
+compares, not by reading the diff.
+
+| Bug | Effect | Found by |
+|---|---|---|
+| `huddle/lifecycle.ts` parse prefix renamed | Every Huddle created before the rename stopped being recognised — the description is already on the relay | `useSearchSettings` / huddle tests |
+| `channel-details-protocol.ts` guard renamed | The validation that rejects a reserved marker accepted the old spelling | reading the same constant's other use |
+| `include_str!("public/buzz-mark.svg")` | **Rust build error** after the file moved | `cargo check --all-targets` |
+| `buzz-links.test.ts` expectation | Asserted `loop://` was a valid scheme; the parser only knows `buzz://` | full suite |
+| `SearchResults` fixture | Renamed the person "Buzz Aldrin", but the query `"buzz"` still had to match him | full suite |
+| `settings-sections.ts` group label | Rows read `Identityloop`; tests expecting `IdentityBuzz` and searching `"buzz"` both failed | full suite |
+| `public/launch-init.js` | The crash page still said "Buzz couldn't open" — a `.js` file in `public/`, outside the extension filter | 4 launch tests |
+| `share-card.ts` | Still drew Block's mascot with eye and mouth cut-outs, beside `BUZZ AGENT` | reading the file |
+| `icon.icns` / `icon.ico` | The OS still showed Block's icon; no test reads them | checking which icon files changed |
+| `solo-agents.test.tsx` fixture | Query `"🐝 B"` matched `"🐝 Buzz Bot"` by prefix; `loop` has no `B` | full suite |
+| 3 Rust `user-agent` assertions | Production formats `loop/{version}`; assertions still required `Buzz` | reading paired test/source |
 
 ## What a reviewer should look at
 
