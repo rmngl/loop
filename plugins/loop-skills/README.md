@@ -70,6 +70,32 @@ with the reason, so it can do better instead of resubmitting the same thing.
   The saving is the human's, not the model's — you stop retyping the same six
   rules every week. For long procedures it wins both ways.
 
+## How this was verified
+
+Against **Buzz 1.0.2** on Windows x64, not against a mock:
+
+- The plugin installs, activates, and on launch creates `~/.buzz/SKILLS` and
+  writes the pointer block into `~/.buzz/AGENTS.md` — so the host really starts
+  the Node helper.
+- A diagnostic plugin confirmed every host call this plugin depends on:
+  `addInstructions` accepts the block, `addTool` accepts the tool shape,
+  `settingsCards.register` works with `ctx.react`, `notifications.register`
+  returns a `submit`, `resolveDirectory` returns an absolute path, and a spawned
+  process received **20,513 bytes on stdin and read all of them**.
+- On the real skills root: draft is invisible to `list`, `skills_read` refuses it
+  until approved, approval writes `SKILLS/<slug>/SKILL.md` and one
+  `.state/approvals.jsonl` line, `INDEX.md` regenerates, the injection block is
+  591 bytes against the 4096 cap, and a `../escape` slug is refused.
+
+Not verified: a real agent turn. Plugins activate before sign-in, but an agent
+needs an account, so the injection appearing in a live prompt and the tools
+appearing in an agent session are the one remaining boundary.
+
+One host detail worth knowing if you change the spawn code: `onStdout` is an
+**option to `spawn`**, not a method on the returned process. Reading it as a
+method fails silently — the optional call just does nothing and you get an empty
+reply with no error.
+
 ## If something is wrong
 
 - **No card in Settings → Skills**: the plugin failed to activate. Check

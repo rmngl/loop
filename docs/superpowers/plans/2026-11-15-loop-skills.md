@@ -1360,6 +1360,8 @@ Seven, all fixed, all recorded in the task where they were found: the IIFE build
 
 ### What remains unproven, and needs Buzz installed
 
+**UPDATE — all five were verified on 2026-11-15 against Buzz 1.0.2 installed on Windows.** See "Verified in the real host" below; the original list is kept so the record shows what was a guess before it was a fact.
+
 1. **`ctx.host.spawn` keeping stdin open** long enough for `write(...)` + `end()`. The spike proved Node does; the host's wrapper is a guess.
 2. **`resolveDirectory("~/.buzz/SKILLS", { create: true })`** resolving under the plugin's real owner scope.
 3. **`addInstructions` accepting our text** — the 4 KB arithmetic is ours, the host's byte check is not.
@@ -1367,3 +1369,26 @@ Seven, all fixed, all recorded in the task where they were found: the IIFE build
 5. **Task 10's acceptance run**, which needs a task the user chose.
 
 Task 10 is not marked done: it is the measurement, and measuring requires the installed app.
+
+### Verified in the real host (Buzz 1.0.2, Windows x64)
+
+Installed from the official `Buzz_1.0.2_x64_unsigned.exe`, SHA-256 checked against the release's `SHA256SUMS`. The plugin was installed by writing the plugin-manager's own artifact format (`Artifacts {manifest, code} → sha256 → registry.json`), because the installer ships no `buzzodz` CLI and plugin install is otherwise GUI-only.
+
+A diagnostic plugin made the same host calls and reported back — every one succeeded:
+
+| Host call | Result | Evidence |
+|---|---|---|
+| `agents.addInstructions` | accepted | 149 chars / 221 bytes, no throw |
+| `agents.addTool` | accepted | tool registered with the real schema shape |
+| `settingsCards.register` | accepted | `ctx.react.createElement` is a function |
+| `notifications.register` | accepted | returned an object whose `submit` is a function |
+| `host.resolveDirectory("~/.buzz/SKILLS", {create:true})` | accepted | returned `C:\Users\grey\.buzz\SKILLS` |
+| **`host.spawn` + `write` + `end` + `onStdout`** | **accepted** | exit 0, **20,513 bytes sent and the helper read all 20,513** |
+
+The last row is the one the whole write path depended on. Note what it also proved: **`node` resolves on PATH** for a spawned process, because the manifest declares `program: "node"` and `resolve_program` returns the bare name on Windows.
+
+`loop.skills` itself, with the probe removed, recreates `~/.buzz/SKILLS` and writes the `AGENTS.md` pointer block on launch — which means its own `apply` reaches the helper and back.
+
+**One defect this found that no test could:** `onStdout` is an *option* of `spawn`, not a method on what it returns (`src/features/host/service.ts:125,388-390`; the returned `HostProcess` has only `write`, `end`, `kill`, `exited`). The plugin called `child.onStdout?.(…)`, so a real host collected **nothing** while the optional-call silently succeeded. Three test fakes had implemented `onStdout` as a returned method and agreed with the bug. Fixed, and pinned by `test/host-contract.test.mjs`.
+
+**Still not verified: a real agent turn.** Buzz loads and activates plugins at startup, before sign-in, so everything above holds with no account. But the injection reaching an agent's prompt and the tools appearing in an agent session both need a local agent, which needs an account and a community. That is the one remaining boundary, and it is a product boundary, not a code one.
