@@ -1,9 +1,17 @@
-// Wraps each src/*.js (except plugin.js) in an IIFE and hoists its exports into
-// locals, so src/plugin.js can use them by name. The host loads exactly one ES
-// module and forbids imports, so this is the smallest thing that still lets the
-// logic be unit-tested as real modules.
+// Concatenates src/*.js into the single ES module the host loads.
+//
+// Order matters and is computed, not alphabetical: `src/index.js` imports from
+// `src/format.js`, and `src/request.js` imports from `src/helper.js`. An earlier
+// version wrapped each module in an IIFE, which silently produced a file with
+// `import` statements inside a function — a syntax error the host would report
+// as a plugin that failed to load. So: topologically sort by import, strip the
+// import lines and the `export` keywords, and emit every module's top-level
+// declarations into one scope.
+//
+// The cost is that every top-level name must be unique across src/, which the
+// build enforces rather than hoping for.
 import { readdir, readFile, writeFile } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -13,54 +21,99 @@ const ENTRY = "plugin.js";
 
 /** `export function f(` -> `function f(`; `export const x =` -> `const x =`. */
 const stripExports = (text) =>
-  text.replace(/^export\s+(?=(?:async\s+)?function|const|let|class)/gm, "");
+  text.replace(/^export\s+(?=(?:default\s+)?(?:async\s+)?function|const|let|class|{)/gm, "");
 
-const names = (text) => {
+/** Every `from "./x.js"` this module depends on, resolved to a basename. */
+const imports = (text) => {
+  const found = [];
+  for (const m of text.matchAll(/^import\s[^;]*?from\s+["'](\.\/[^"']+)["']/gm)) {
+    found.push(basename(m[1]));
+  }
+  return found;
+};
+
+/** Bare `import "./x.js";` too, so a side-effect import cannot be reordered away. */
+const sideEffectImports = (text) => {
+  const found = [];
+  for (const m of text.matchAll(/^import\s+["'](\.\/[^"']+)["'];?/gm)) found.push(basename(m[1]));
+  return found;
+};
+
+const topLevelNames = (text) => {
   const found = [];
   for (const m of text.matchAll(/^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/gm)) found.push(m[1]);
   for (const m of text.matchAll(/^(?:const|let|class)\s+([A-Za-z_$][\w$]*)/gm)) found.push(m[1]);
   return found;
 };
 
-const files = (await readdir(SRC)).filter((f) => f.endsWith(".js") && f !== ENTRY).sort();
+const all = (await readdir(SRC)).filter((f) => f.endsWith(".js") && f !== ENTRY);
+const sources = new Map();
+for (const file of all) sources.set(file, await readFile(join(SRC, file), "utf8"));
+
+const deps = new Map();
+for (const [file, text] of sources) {
+  deps.set(file, [...imports(text), ...sideEffectImports(text)].filter((d) => sources.has(d)));
+}
+
+// Depth first, dependencies first. A cycle is a build error, not a guess.
+const order = [];
+const state = new Map();
+const visit = (file, trail) => {
+  const seen = state.get(file);
+  if (seen === "done") return;
+  if (seen === "open") throw new Error(`Circular import: ${[...trail, file].join(" -> ")}`);
+  state.set(file, "open");
+  for (const dep of deps.get(file) ?? []) visit(dep, [...trail, file]);
+  state.set(file, "done");
+  order.push(file);
+};
+for (const file of all.slice().sort()) visit(file, []);
 
 const parts = [];
-const exported = [];
-const locals = [];
 const owners = new Map();
-for (const file of files) {
-  const body = stripExports(await readFile(join(SRC, file), "utf8"));
-  const local = names(body);
-  const ident = file.replace(/\W/g, "_");
-  locals.push(ident);
-  parts.push(
-    `// ---- src/${file} ----\nconst ${ident} = (() => {\n${body}\nreturn { ${local.join(", ")} };\n})();`,
-  );
-  for (const n of local) {
-    // A silent shadow here would make one module's function answer for another's.
-    if (owners.has(n)) throw new Error(`Duplicate export ${n} in src/${file} and ${owners.get(n)}`);
-    owners.set(n, `src/${file}`);
-    exported.push(n);
+for (const file of order) {
+  const text = sources.get(file);
+  const body = stripExports(text)
+    .split("\n")
+    .filter((line) => !/^import\s[^;]*?from\s+["']\.\/[^"']+["'];?\s*$/.test(line))
+    .filter((line) => !/^import\s+["']\.\/[^"']+["'];?\s*$/.test(line))
+    .join("\n")
+    .trimEnd();
+  for (const name of topLevelNames(body)) {
+    // One module's `parse` answering for another's is the failure this prevents.
+    if (owners.has(name)) throw new Error(`Duplicate export ${name} in src/${file} and src/${owners.get(name)}`);
+    owners.set(name, file);
   }
+  parts.push(`// ---- src/${file} ----\n${body}`);
 }
 
 // The entry KEEPS its `export` keywords: it is the module the host imports.
-const entry = await readFile(join(SRC, ENTRY), "utf8");
-const hoist = `const { ${exported.sort().join(", ")} } = Object.assign({}, ...Object.values({ ${locals.join(", ")} }));`;
+const entry = (await readFile(join(SRC, ENTRY), "utf8")).trimEnd();
+const output = `// GENERATED by scripts/build.mjs — edit src/*.js instead.\n${parts.join("\n\n")}\n\n// ---- src/${ENTRY} ----\n${entry}\n`;
 
-const output = `// GENERATED by scripts/build.mjs — edit src/*.js instead.\n${parts.join("\n\n")}\n\n${hoist}\n\n${entry}\n`;
+// The helper source travels in a process command line. Windows caps one at
+// 32767 characters, and a 32 KB payload in argv already fails with
+// ENAMETOOLONG — measured. Measure the string that actually travels.
+const helperPath = join(SRC, "helper.js");
+if (sources.has("helper.js")) {
+  const { HELPER_SOURCE } = await import(`file://${helperPath.replace(/\\/g, "/")}`);
+  if (typeof HELPER_SOURCE !== "string" || !HELPER_SOURCE) {
+    throw new Error("src/helper.js must export HELPER_SOURCE as a non-empty string");
+  }
+  const bytes = Buffer.byteLength(HELPER_SOURCE, "utf8");
+  if (bytes > 24_000) throw new Error(`helper source too large for a command line: ${bytes} bytes`);
 
-// Windows caps a whole process command line at 32767 characters, and the helper
-// source travels in one. Measured: a 32 KB payload in argv fails with
-// ENAMETOOLONG, so the helper's source gets the same budget.
-const helperFile = join(SRC, "helper.js");
-if (files.includes("helper.js")) {
-  const helper = await readFile(helperFile, "utf8");
-  const bytes = Buffer.byteLength(helper, "utf8");
-  if (bytes > 24000) throw new Error(`helper source too large for a command line: ${bytes} bytes`);
+  // The helper body sits in a template literal, so a declaration at column 0
+  // inside it would be hoisted into the bundle and shadow a real module.
+  const fileText = sources.get("helper.js");
+  const literal = fileText.slice(fileText.indexOf("String.raw"), fileText.lastIndexOf("`"));
+  const hoisted = literal.split("\n").filter((line) => /^(?:async\s+)?(?:function|const|let|class)\s/.test(line));
+  if (hoisted.length > 0) {
+    throw new Error(`helper body has ${hoisted.length} declaration(s) at column 0; indent the body by two spaces`);
+  }
 }
 
 if (Buffer.byteLength(output, "utf8") > 400_000) throw new Error("plugin.js is unexpectedly large");
 
 await writeFile(join(ROOT, "plugin.js"), output, "utf8");
-console.log(`built plugin.js from ${files.length} modules`);
+console.log(`built plugin.js from ${order.length} modules: ${order.join(", ")}`);

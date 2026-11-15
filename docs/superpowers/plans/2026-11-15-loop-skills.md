@@ -82,8 +82,15 @@ plugins/loop-skills/
 
 `plugin.js` is a committed build output: a Buzz install is a folder copy, and a folder with no `plugin.js` in it does nothing. Do not add it to any `.gitignore`.
 
+**The build must be a topological concatenation, not an IIFE per module.** The first version of this plan wrapped each `src/*.js` in `(function(){...})()` with its exports returned. That is wrong, and running it proved it: `src/index.js` legitimately begins `import { utf8Length } from "./format.js"`, and an `import` inside a function body is a **syntax error**. The bundle would parse as text and fail to load as a plugin. The corrected build below reads every module's relative imports, depth-first sorts dependencies before dependents, strips the `import` lines and the `export` keywords, and emits all top-level declarations into one scope. The price is that top-level names must be unique across `src/`, which the build throws on.
+
+**Two things the tests pin that are easy to get wrong:**
+
+1. `plugin.js` must contain no top-level `import` *in its code*. The helper's source is a template literal that legitimately contains `import { ... } from "node:fs/promises"` at column 0. A naive `/^import/m` scan reads that as a real import and fails. The test blanks template literals before scanning (and separately asserts the helper IS embedded, so blanking cannot hide a missing helper).
+2. The helper body is inside a template literal, so the build's name scan sees it too. Every line of the helper body is indented two spaces and dedented at runtime; the build refuses a helper body with a declaration at column 0, because that would be hoisted into the bundle and shadow a real module.
+
 **Interfaces:**
-- Produces: `scripts/build.mjs` — CLI `node scripts/build.mjs` reads every `src/*.js` except `src/plugin.js`, then writes `plugin.js` as `<wrapped modules>\n<src/plugin.js contents, with `export ` keywords removed>`. Exported names from a wrapped module are visible as locals inside `src/plugin.js`'s code, so `src/plugin.js` may reference `buildIndex` or `parseSkill` without importing.
+- Produces: `scripts/build.mjs` — CLI `node scripts/build.mjs`; prints `built plugin.js from N modules: <order>`. Emits `<modules in dependency order>\n\n<src/plugin.js verbatim, keeping its export keywords>`. Every wrapped module's top-level declarations are visible to `src/plugin.js`, so it may reference `buildInjection` or `parseSkill` without importing.
 - Produces: `manifest.json` with `host.files: true` and `host.processes: [{ "id": "skills", "program": "node", "args": ["--input-type=module"] }]`.
 
 - [ ] **Step 1: Write the failing test for the build step**
@@ -101,13 +108,48 @@ test("build emits one module whose only export is apply", async () => {
   });
   assert.match(out, /built plugin\.js/);
   const text = await readFile("plugins/loop-skills/plugin.js", "utf8");
-  assert.equal(/^\s*import\s/m.test(text), false, "plugin.js must contain no import");
-  const exported = [...text.matchAll(/^export\s+/gm)];
+  // The helper's source is a template literal containing real `import` lines at
+  // column 0. Blank that span, then assert the module itself has none.
+  const codeOnly = blankTemplateLiterals(text);
+  assert.equal(/^import\s/m.test(codeOnly), false, "plugin.js must contain no top-level import");
+  assert.equal(/^\s*export\s+.*\bfrom\s/m.test(codeOnly), false, "no re-exports");
+  const exported = [...codeOnly.matchAll(/^export\s+/gm)];
   assert.equal(exported.length, 1, "the entry keeps exactly one export, apply");
-  assert.match(text, /^export function apply\(/m);
+  assert.match(codeOnly, /^export function apply\(/m);
   // Proves it is a real module the host can import, not just text that looks right.
   const { apply } = await import(`../plugin.js?built=${Date.now()}`);
   assert.equal(typeof apply, "function");
+});
+
+/** Replace the body of every template literal with nothing, keeping the code. */
+function blankTemplateLiterals(text) {
+  let out = "";
+  let inLiteral = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (!inLiteral && ch === "`") { inLiteral = true; out += "``"; continue; }
+    if (inLiteral) {
+      if (ch === "\\") { i += 1; continue; }
+      if (ch === "`") { inLiteral = false; out += ""; }
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+test("the build embeds the helper source and keeps it command-line sized", async () => {
+  execFileSync(process.execPath, ["plugins/loop-skills/scripts/build.mjs"], { stdio: "pipe" });
+  const text = await readFile("plugins/loop-skills/plugin.js", "utf8");
+  // The bundle must carry the helper, or the installed plugin has no write path.
+  assert.match(text, /loop:skills:start/, "the helper's pointer block is embedded");
+  assert.match(text, /process\.stdin/, "the helper reads its request from stdin");
+  const { HELPER_SOURCE } = await import("../src/helper.js");
+  const bytes = Buffer.byteLength(HELPER_SOURCE, "utf8");
+  assert.ok(bytes < 24_000, `helper source is ${bytes} bytes; Windows allows ~32767 for the whole line`);
+  // The helper is legitimate module code, so its imports ARE at column 0. What
+  // must not happen is the build's export scan hoisting them out of the string.
+  assert.match(HELPER_SOURCE, /^import \{.*\} from "node:fs\/promises";/m);
 });
 
 test("build refuses two modules exporting the same name", async () => {
@@ -152,18 +194,27 @@ Expected: FAIL — `Cannot find module .../scripts/build.mjs`.
 
 - [ ] **Step 4: Write `scripts/build.mjs`**
 
-Measured behaviour this must have, from a spike run before this plan was written:
+Measured behaviour this must have, from running it:
+- Modules are emitted in **dependency order**, computed from their relative imports. `src/index.js` imports from `src/format.js`; `src/request.js` imports from `src/helper.js`. An IIFE wrapper cannot host a real `import`, so this is a flat concatenation with imports stripped and exports stripped.
 - The entry file **keeps** its `export` keywords — it is the module the host imports. Stripping them yields a module with no exports, which Buzz reports as a plugin with no `apply`.
-- A duplicate exported name across modules **throws**, because a silent `Object.assign` shadow would make one module's function answer for another's.
-- The helper source must be checked against the 24000-byte ceiling (see Task 5).
+- A duplicate top-level name across modules **throws**, because one module's function answering for another's is silent and wrong.
+- The helper source is measured as `HELPER_SOURCE` (the dedented string that actually travels), and its body must not have a declaration at column 0.
 
 ```js
-// Wraps each src/*.js (except plugin.js) in an IIFE and hoists its exports into
-// locals, so src/plugin.js can use them by name. The host loads exactly one ES
-// module and forbids imports, so this is the smallest thing that still lets the
-// logic be unit-tested as real modules.
+// Concatenates src/*.js into the single ES module the host loads.
+//
+// Order matters and is computed, not alphabetical: `src/index.js` imports from
+// `src/format.js`, and `src/request.js` imports from `src/helper.js`. An earlier
+// version wrapped each module in an IIFE, which silently produced a file with
+// `import` statements inside a function — a syntax error the host would report
+// as a plugin that failed to load. So: topologically sort by import, strip the
+// import lines and the `export` keywords, and emit every module's top-level
+// declarations into one scope.
+//
+// The cost is that every top-level name must be unique across src/, which the
+// build enforces rather than hoping for.
 import { readdir, readFile, writeFile } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -172,42 +223,103 @@ const SRC = join(ROOT, "src");
 const ENTRY = "plugin.js";
 
 /** `export function f(` -> `function f(`; `export const x =` -> `const x =`. */
-const stripExports = (text) => text.replace(/^export\s+(?=(?:async\s+)?function|const|let|class)/gm, "");
+const stripExports = (text) =>
+  text.replace(/^export\s+(?=(?:default\s+)?(?:async\s+)?function|const|let|class|{)/gm, "");
 
-const names = (text) => {
+/** Every `from "./x.js"` this module depends on, resolved to a basename. */
+const imports = (text) => {
+  const found = [];
+  for (const m of text.matchAll(/^import\s[^;]*?from\s+["'](\.\/[^"']+)["']/gm)) {
+    found.push(basename(m[1]));
+  }
+  return found;
+};
+
+/** Bare `import "./x.js";` too, so a side-effect import cannot be reordered away. */
+const sideEffectImports = (text) => {
+  const found = [];
+  for (const m of text.matchAll(/^import\s+["'](\.\/[^"']+)["'];?/gm)) found.push(basename(m[1]));
+  return found;
+};
+
+const topLevelNames = (text) => {
   const found = [];
   for (const m of text.matchAll(/^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/gm)) found.push(m[1]);
   for (const m of text.matchAll(/^(?:const|let|class)\s+([A-Za-z_$][\w$]*)/gm)) found.push(m[1]);
   return found;
 };
 
-const files = (await readdir(SRC)).filter((f) => f.endsWith(".js") && f !== ENTRY).sort();
+const all = (await readdir(SRC)).filter((f) => f.endsWith(".js") && f !== ENTRY);
+const sources = new Map();
+for (const file of all) sources.set(file, await readFile(join(SRC, file), "utf8"));
+
+const deps = new Map();
+for (const [file, text] of sources) {
+  deps.set(file, [...imports(text), ...sideEffectImports(text)].filter((d) => sources.has(d)));
+}
+
+// Depth first, dependencies first. A cycle is a build error, not a guess.
+const order = [];
+const state = new Map();
+const visit = (file, trail) => {
+  const seen = state.get(file);
+  if (seen === "done") return;
+  if (seen === "open") throw new Error(`Circular import: ${[...trail, file].join(" -> ")}`);
+  state.set(file, "open");
+  for (const dep of deps.get(file) ?? []) visit(dep, [...trail, file]);
+  state.set(file, "done");
+  order.push(file);
+};
+for (const file of all.slice().sort()) visit(file, []);
+
 const parts = [];
-const exported = [];
-const locals = [];
 const owners = new Map();
-for (const file of files) {
-  const body = stripExports(await readFile(join(SRC, file), "utf8"));
-  const local = names(body);
-  const ident = file.replace(/\W/g, "_");
-  locals.push(ident);
-  parts.push(`// ---- src/${file} ----\nconst ${ident} = (() => {\n${body}\nreturn { ${local.join(", ")} };\n})();`);
-  for (const n of local) {
-    // A silent shadow here would make one module's function answer for another's.
-    if (owners.has(n)) throw new Error(`Duplicate export ${n} in src/${file} and ${owners.get(n)}`);
-    owners.set(n, `src/${file}`);
-    exported.push(n);
+for (const file of order) {
+  const text = sources.get(file);
+  const body = stripExports(text)
+    .split("\n")
+    .filter((line) => !/^import\s[^;]*?from\s+["']\.\/[^"']+["'];?\s*$/.test(line))
+    .filter((line) => !/^import\s+["']\.\/[^"']+["'];?\s*$/.test(line))
+    .join("\n")
+    .trimEnd();
+  for (const name of topLevelNames(body)) {
+    // One module's `parse` answering for another's is the failure this prevents.
+    if (owners.has(name)) throw new Error(`Duplicate export ${name} in src/${file} and src/${owners.get(name)}`);
+    owners.set(name, file);
+  }
+  parts.push(`// ---- src/${file} ----\n${body}`);
+}
+
+// The entry KEEPS its `export` keywords: it is the module the host imports.
+const entry = (await readFile(join(SRC, ENTRY), "utf8")).trimEnd();
+const output = `// GENERATED by scripts/build.mjs — edit src/*.js instead.\n${parts.join("\n\n")}\n\n// ---- src/${ENTRY} ----\n${entry}\n`;
+
+// The helper source travels in a process command line. Windows caps one at
+// 32767 characters, and a 32 KB payload in argv already fails with
+// ENAMETOOLONG — measured. Measure the string that actually travels.
+const helperPath = join(SRC, "helper.js");
+if (sources.has("helper.js")) {
+  const { HELPER_SOURCE } = await import(`file://${helperPath.replace(/\\/g, "/")}`);
+  if (typeof HELPER_SOURCE !== "string" || !HELPER_SOURCE) {
+    throw new Error("src/helper.js must export HELPER_SOURCE as a non-empty string");
+  }
+  const bytes = Buffer.byteLength(HELPER_SOURCE, "utf8");
+  if (bytes > 24_000) throw new Error(`helper source too large for a command line: ${bytes} bytes`);
+
+  // The helper body sits in a template literal, so a declaration at column 0
+  // inside it would be hoisted into the bundle and shadow a real module.
+  const fileText = sources.get("helper.js");
+  const literal = fileText.slice(fileText.indexOf("String.raw"), fileText.lastIndexOf("`"));
+  const hoisted = literal.split("\n").filter((line) => /^(?:async\s+)?(?:function|const|let|class)\s/.test(line));
+  if (hoisted.length > 0) {
+    throw new Error(`helper body has ${hoisted.length} declaration(s) at column 0; indent the body by two spaces`);
   }
 }
-// The entry KEEPS its `export` keywords: it is the module the host imports.
-const entry = await readFile(join(SRC, ENTRY), "utf8");
-const hoist = `const { ${exported.sort().join(", ")} } = Object.assign({}, ...Object.values({ ${locals.join(", ")} }));`;
-const output = `// GENERATED by scripts/build.mjs — edit src/*.js instead.\n${parts.join("\n\n")}\n\n${hoist}\n\n${entry}\n`;
-// Windows caps a command line at 32767 characters, and the helper travels in
-// one. Measured: a 32 KB payload in argv already fails with ENAMETOOLONG.
+
 if (Buffer.byteLength(output, "utf8") > 400_000) throw new Error("plugin.js is unexpectedly large");
+
 await writeFile(join(ROOT, "plugin.js"), output, "utf8");
-console.log(`built plugin.js from ${files.length} modules`);
+console.log(`built plugin.js from ${order.length} modules: ${order.join(", ")}`);
 ```
 
 - [ ] **Step 5: Write a trivial `src/plugin.js` so the build has an entry**
@@ -766,9 +878,15 @@ Expected: FAIL — no modules `../src/request.js` and `../src/helper.js`.
 
 - [ ] **Step 4: Implement `src/request.js` and `src/helper.js`**
 
-`HELPER_SOURCE` is written as a template literal. It may `import` from `node:fs/promises` and `node:path`; it must not import anything else. It reads its one request from **stdin**, catches every error and prints `{ ok: false, error }` so the plugin never sees a stack trace on stdout. Body size above 61440 bytes is refused with `{ ok: false, error: "body too large" }`. Slug validation is duplicated inside the helper (it cannot import `format.js`, and the boundary must hold even if the plugin is replaced) and the two must agree — Task 2's test list is the source of truth for what is refused.
+`HELPER_SOURCE` is written as a template literal. It may `import` from `node:fs/promises` and `node:path`; it must not import anything else. It reads its one request from **stdin**, catches every error and prints `{ ok: false, error }` so the plugin never sees a stack trace on stdout. Body size above 61440 bytes is refused with `{ ok: false, error: "the procedure is too large: ..." }` — the test greps `/too large/`. Slug validation is duplicated inside the helper (it cannot import `format.js`, and the boundary must hold even if the plugin is replaced) and the two must agree — Task 2's test list is the source of truth for what is refused.
 
-Add to `scripts/build.mjs`, before writing: `if (Buffer.byteLength(source, "utf8") > 24000) throw new Error("helper source too large for a command line")`, where `source` is `HELPER_SOURCE` read out of the built text. Measured ceiling on Windows is 32,767 characters for the whole command line; 24000 leaves room for `node`, `--input-type=module`, `-e`, and quoting.
+**Three mechanical rules the helper body must follow, each of which broke the build when violated:**
+
+1. **Every line is indented two spaces and dedented at runtime** (`RAW.replace(/^ {2}/gm, "").replace(/^\n/, "")`). The build's name scan reads the file text, so a `const` at column 0 inside the literal would be collected as a module export that does not exist. The build now throws if it finds one.
+2. **No backticks and no `${` anywhere in the body** — it is a template literal. Where the helper needs a literal backtick (it looks for `` `file.md` `` references in bodies), it uses `String.fromCharCode(96)`.
+3. **The pointer block text contains backticks**, so it goes through a `%B%` placeholder that is substituted after dedenting.
+
+`scripts/build.mjs` measures `HELPER_SOURCE` (not the file) against 24000 bytes. The measured Windows ceiling is 32767 characters for the whole command line; 24000 leaves room for `node`, `--input-type=module`, `-e`, and quoting. As of implementation it is 13,374 bytes.
 
 - [ ] **Step 5: Run the tests**
 
