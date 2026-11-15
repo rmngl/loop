@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { apply, inject } from "../plugin.js";
+import { until } from "./_until.mjs";
 import { HELPER_SOURCE } from "../src/helper.js";
 
 /** A ctx that records what apply registers and can actually run the helper. */
@@ -84,8 +85,8 @@ test("inject names exactly the services apply touches", () => {
 test("apply registers three tools and one notification", async () => {
   const f = await fakeCtx();
   apply(f.ctx);
-  // apply starts async work; give the first refresh a tick.
-  await new Promise((r) => setTimeout(r, 300));
+  // apply starts async work; wait for the block rather than guessing how long.
+  await until(() => f.instructions.length > 0, "the first injection block");
 
   assert.deepEqual(f.tools.map((t) => t.name).sort(), ["skills_draft", "skills_list", "skills_read"]);
   assert.equal(f.notifications.length, 1);
@@ -102,7 +103,7 @@ test("apply registers three tools and one notification", async () => {
 test("skills_draft through the real spawn writes a draft and notifies once", async () => {
   const f = await fakeCtx();
   apply(f.ctx);
-  await new Promise((r) => setTimeout(r, 300));
+  await until(() => f.instructions.length > 0, "the first injection block");
 
   const draft = f.tools.find((t) => t.name === "skills_draft");
   const reply = await draft.call({}, { channel: "chan-1", session: "sess" }, {
@@ -127,7 +128,7 @@ test("a tool call answers with a sentence when the host refuses to spawn", async
   const f = await fakeCtx();
   f.ctx.host.spawn = async () => { throw new Error("Processes require an installed desktop plugin"); };
   apply(f.ctx);
-  await new Promise((r) => setTimeout(r, 300));
+  // spawn throws here, so no block ever appears; the tool call is what matters.
   const list = f.tools.find((t) => t.name === "skills_list");
   const reply = await list.call({}, {}, {});
   assert.match(reply, /couldn't read|desktop/i);

@@ -115,5 +115,23 @@ if (sources.has("helper.js")) {
 
 if (Buffer.byteLength(output, "utf8") > 400_000) throw new Error("plugin.js is unexpectedly large");
 
-await writeFile(join(ROOT, "plugin.js"), output, "utf8");
+// Tests must never rewrite the committed artifact. `plugin.js` is imported by
+// every other suite, and on Windows writing a file another process has open
+// fails with EBUSY — which made the suite fail intermittently. So `--out` puts
+// the bundle somewhere disposable, and `--check` compares instead of writing,
+// which is also what a CI drift check wants.
+const argv = process.argv.slice(2);
+const target = argv.includes("--out") ? argv[argv.indexOf("--out") + 1] : join(ROOT, "plugin.js");
+
+if (argv.includes("--check")) {
+  const committed = await readFile(target, "utf8").catch(() => null);
+  if (committed === output) {
+    console.log(`plugin.js is up to date: ${order.length} modules`);
+    process.exit(0);
+  }
+  console.error(`plugin.js is stale; run node scripts/build.mjs`);
+  process.exit(1);
+}
+
+await writeFile(target, output, "utf8");
 console.log(`built plugin.js from ${order.length} modules: ${order.join(", ")}`);

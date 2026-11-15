@@ -9,8 +9,7 @@ import { join } from "node:path";
 import { spawn as realSpawn, execFile } from "node:child_process";
 import { apply } from "../plugin.js";
 import { HELPER_SOURCE } from "../src/helper.js";
-
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+import { until } from "./_until.mjs";
 
 /** Run the helper the way the plugin does: source in argv, request on stdin. */
 const helper = (root, command, payload = {}) =>
@@ -85,7 +84,7 @@ test("draft, approve, and the prompt block changes to name the skill", async () 
 
   const h = harness(root);
   apply(h.ctx);
-  await wait(350);
+  await until(() => h.blocks.has("skills-index"), "the zero-skill block");
 
   // 1. Zero skills: the block still tells the agent that drafting exists.
   const before = h.blocks.get("skills-index");
@@ -107,7 +106,6 @@ test("draft, approve, and the prompt block changes to name the skill", async () 
   assert.equal(h.submissions[0].sourceKey, "weekly-report");
 
   // Still not in the prompt: a draft is invisible until approved.
-  await wait(350);
   assert.equal(h.blocks.get("skills-index").includes("weekly-report"), false,
     "an unapproved draft must not reach the prompt");
 
@@ -122,8 +120,13 @@ test("draft, approve, and the prompt block changes to name the skill", async () 
 
   // 5. The next tool call refreshes the block, and now the skill is in it.
   await h.tools.find((t) => t.name === "skills_list").call({}, {}, {});
-  await wait(350);
-  const after = h.blocks.get("skills-index");
+  const after = await until(
+    () => {
+      const text = h.blocks.get("skills-index");
+      return text?.includes("weekly-report") && text;
+    },
+    "the approved skill to reach the prompt",
+  );
   assert.match(after, /weekly-report — 매주 같은 규칙으로 매출 보고서를 만든다/);
 
   // 6. And the agent can read it, getting the procedure itself.
@@ -147,7 +150,7 @@ test("a rejection reaches the next draft attempt with its reason", async () => {
 
   const h = harness(root);
   apply(h.ctx);
-  await wait(350);
+  await until(() => h.blocks.has("skills-index"), "the zero-skill block");
 
   const draftTool = h.tools.find((t) => t.name === "skills_draft");
   const args = {
