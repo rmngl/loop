@@ -22,7 +22,7 @@ Reference: [Paperclip key concepts](https://docs.paperclip.ing/guides/welcome/ke
 - **Reports-to on org chart** — hire with `parent_agent_id`; API + Org UI.
 - **Task review gate** — agent or board submits work → `in_review`; board **Approve done** or **Request changes**; adapter may set `HeartbeatOut.status` to `ready_for_review`.
 - **Dashboard** — KPI for tickets awaiting review; **Tickets** nav badge when `in_review` > 0.
-- **Company monthly budget** — `companies.monthly_budget_usd`, Budgets UI, heartbeat block when org cap exhausted.
+- **Company monthly budget** — `companies.monthly_budget_usd`, Budgets UI, heartbeat block when org cap exhausted; **cap increases** require Approvals (`company_budget_increase_gate` test).
 - **Ticket reviewer** — `reviewer_agent_id`, default manager on submit-review, review heartbeat mode, assign-time override.
 - **Tool gateway** — `tool_policies`, evaluate + **ask → Approvals → one-shot grant** (`tool_gateway_ask_flow` test); Governance UI.
 - **Ticket reviewer** — `reviewer_agent_id`; defaults to assignee’s **Reports to** on submit; reviewer heartbeat with `context.heartbeat_mode: "review"`.

@@ -176,6 +176,32 @@ impl<'a> ApprovalRepository<'a> {
         Ok(id)
     }
 
+    pub async fn create_increase_company_budget(
+        &self,
+        company_id: CompanyId,
+        new_cap_usd: f64,
+    ) -> Result<ApprovalId> {
+        let id = ApprovalId::new();
+        let now = Utc::now();
+        let payload = serde_json::json!({ "new_cap_usd": new_cap_usd });
+
+        sqlx::query(
+            r#"
+            INSERT INTO approvals (id, company_id, kind, payload_json, status, created_at)
+            VALUES (?1, ?2, 'increase_company_budget', ?3, 'pending', ?4)
+            "#,
+        )
+        .bind(id.to_string())
+        .bind(company_id.to_string())
+        .bind(payload.to_string())
+        .bind(now.to_rfc3339())
+        .execute(self.store.pool())
+        .await
+        .map_err(|e| LoopError::Database(e.to_string()))?;
+
+        Ok(id)
+    }
+
     pub async fn find_pending_tool_use(
         &self,
         company_id: CompanyId,

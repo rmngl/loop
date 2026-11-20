@@ -225,6 +225,15 @@ export const api = {
     return json<{ approval_id: string }>(res);
   },
 
+  async requestCompanyBudgetIncrease(companyId: string, newCapUsd: number) {
+    const res = await fetch(companyPath(DEFAULT_BASE, companyId, "/company-budget-increase"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ new_cap_usd: newCapUsd }),
+    });
+    return json<{ approval_id: string }>(res);
+  },
+
   async listBudgets(companyId: string) {
     const res = await fetch(companyPath(DEFAULT_BASE, companyId, "/budgets"));
     return json<{ company: CompanyBudgetRollup | null; agents: BudgetRow[] }>(res);

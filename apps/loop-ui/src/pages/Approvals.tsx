@@ -17,14 +17,21 @@ function kindTone(kind: string): "default" | "warn" | "strategy" {
 }
 
 function formatPayload(kind: string, payload: unknown): string {
-  if (kind !== "tool_use" || typeof payload !== "object" || payload === null) {
+  if (typeof payload !== "object" || payload === null) {
     return JSON.stringify(payload);
   }
   const p = payload as Record<string, unknown>;
-  if (typeof p.tool === "string") {
+  if (kind === "tool_use" && typeof p.tool === "string") {
     const pattern = typeof p.matched_pattern === "string" ? ` (${p.matched_pattern})` : "";
     const agent = typeof p.agent_id === "string" ? ` · agent ${p.agent_id.slice(0, 8)}…` : "";
     return `${p.tool}${pattern}${agent}`;
+  }
+  if (kind === "increase_company_budget" && typeof p.new_cap_usd === "number") {
+    return `company monthly cap → $${p.new_cap_usd}`;
+  }
+  if (kind === "increase_budget" && typeof p.new_cap_usd === "number") {
+    const agent = typeof p.agent_id === "string" ? ` · agent ${p.agent_id.slice(0, 8)}…` : "";
+    return `agent cap → $${p.new_cap_usd}${agent}`;
   }
   return JSON.stringify(payload);
 }

@@ -48,7 +48,16 @@ export function BudgetsPage() {
         alert("Enter a non-negative number or leave blank to remove the company cap.");
         return;
       }
-      await api.updateCompanyMonthlyBudget(activeCompanyId, value);
+      const currentCap = companyRollup?.cap_usd ?? 0;
+      const isIncrease = value !== null && value > currentCap;
+      if (isIncrease) {
+        const res = await api.requestCompanyBudgetIncrease(activeCompanyId, value);
+        alert(
+          `Company cap increase pending. Approve approval ${res.approval_id} on the Approvals tab.`
+        );
+      } else {
+        await api.updateCompanyMonthlyBudget(activeCompanyId, value);
+      }
       await load();
     } finally {
       setSavingCompanyCap(false);
@@ -71,7 +80,8 @@ export function BudgetsPage() {
       <div className="panel panel--hero" style={{ marginBottom: "1rem" }}>
         <h3>Company monthly ceiling</h3>
         <p className="muted" style={{ marginTop: 0 }}>
-          Hard stop for all agent spend in this organization for the current month (80% warn, 100% blocks heartbeats).
+          Hard stop for all agent spend this month (80% warn, 100% blocks heartbeats). Raising the cap
+          requires board approval; lowering or clearing applies immediately.
         </p>
         {companyRollup ? (
           <p className="row" style={{ gap: "0.5rem", marginBottom: "0.75rem" }}>

@@ -83,6 +83,10 @@ pub fn router() -> Router<Arc<AppState>> {
             post(request_budget_increase),
         )
         .route(
+            "/v1/companies/{company_id}/company-budget-increase",
+            post(request_company_budget_increase),
+        )
+        .route(
             "/v1/companies/{company_id}/agents/{agent_id}/heartbeat",
             post(trigger_heartbeat),
         )
@@ -271,6 +275,21 @@ async fn approve(
         );
         AgentRepository::new(&state.store)
             .apply_budget_override(company_id, agent_id, new_cap)
+            .await?;
+    } else if kind == "increase_company_budget" {
+        let new_cap = payload
+            .get("new_cap_usd")
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| AppError(LoopError::Validation("missing new_cap_usd".into())))?;
+        CompanyRepository::new(&state.store)
+            .update_monthly_budget(company_id, Some(new_cap))
+            .await?;
+        AuditLog::new(&state.store)
+            .append(
+                company_id,
+                "company_budget_set",
+                serde_json::json!({ "monthly_budget_usd": new_cap, "via": "approval" }),
+            )
             .await?;
     } else if kind == "tool_use" {
         let tool = payload
@@ -779,6 +798,17 @@ async fn patch_company(
             .append(company_id, "company_budget_cleared", serde_json::json!({}))
             .await?;
     } else if let Some(cap) = body.monthly_budget_usd {
+        let current = c.monthly_budget_usd;
+        let is_increase = match current {
+            None => cap > 0.0,
+            Some(cur) => cap > cur,
+        };
+        if is_increase {
+            return Err(AppError(LoopError::Validation(
+                "company budget increases require board approval; POST .../company-budget-increase"
+                    .into(),
+            )));
+        }
         c = repo.update_monthly_budget(company_id, Some(cap)).await?;
         AuditLog::new(&state.store)
             .append(
@@ -950,6 +980,43 @@ async fn request_budget_increase(
     let company_id = parse_company(&company_id)?;
     let approval_id = ApprovalRepository::new(&state.store)
         .create_increase_budget(company_id, &agent_id, body.new_cap_usd)
+        .await?;
+    Ok(Json(serde_json::json!({ "approval_id": approval_id.to_string() })))
+}
+
+async fn request_company_budget_increase(
+    State(state): State<Arc<AppState>>,
+    Path(company_id): Path<String>,
+    Json(body): Json<BudgetIncreaseBody>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let company_id = parse_company(&company_id)?;
+    if body.new_cap_usd < 0.0 {
+        return Err(AppError(LoopError::Validation(
+            "new_cap_usd must be >= 0".into(),
+        )));
+    }
+    let company = CompanyRepository::new(&state.store).get(company_id).await?;
+    let current = company.monthly_budget_usd.unwrap_or(0.0);
+    if body.new_cap_usd <= current {
+        return Err(AppError(LoopError::Validation(format!(
+            "new_cap_usd {new} must exceed current company cap {cur}",
+            new = body.new_cap_usd,
+            cur = current
+        ))));
+    }
+    let approval_id = ApprovalRepository::new(&state.store)
+        .create_increase_company_budget(company_id, body.new_cap_usd)
+        .await?;
+    AuditLog::new(&state.store)
+        .append(
+            company_id,
+            "company_budget_increase_requested",
+            serde_json::json!({
+                "new_cap_usd": body.new_cap_usd,
+                "current_cap_usd": company.monthly_budget_usd,
+                "approval_id": approval_id.to_string(),
+            }),
+        )
         .await?;
     Ok(Json(serde_json::json!({ "approval_id": approval_id.to_string() })))
 }

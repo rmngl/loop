@@ -8,6 +8,7 @@
 - **Ticket reviewer** agent (`reviewer_agent_id`, review heartbeat, UI)
 - **Tool gateway stub** (allow/ask/block policies, evaluate API, Tools UI)
 - **Tool gateway ask flow** — `tool_use` approvals, one-shot grants (`request-use` / `consume`)
+- **Company budget increase gate** — org monthly cap raises via Approvals (`increase_company_budget`)
 - Boardroom UI (design tokens, PageHeader, KPI tiles, grouped nav)
 - Paperclip-aligned org **reports-to**, ticket **review gate** (`in_review`), adapter `ready_for_review` signals
 - [PAPERCLIP_PARITY.md](docs/PAPERCLIP_PARITY.md)
