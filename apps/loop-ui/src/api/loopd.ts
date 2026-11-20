@@ -4,6 +4,7 @@ export type CompanyRow = {
   id: string;
   name: string;
   mission: string;
+  monthly_budget_usd?: number | null;
   archived?: boolean;
   archived_at?: string | null;
 };
@@ -181,6 +182,19 @@ export const api = {
     return json<CompanyRow>(res);
   },
 
+  async updateCompanyMonthlyBudget(companyId: string, monthlyBudgetUsd: number | null) {
+    const body =
+      monthlyBudgetUsd === null
+        ? { clear_monthly_budget: true }
+        : { monthly_budget_usd: monthlyBudgetUsd };
+    const res = await fetch(`${DEFAULT_BASE}/v1/companies/${companyId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return json<CompanyRow>(res);
+  },
+
   async requestBudgetIncrease(companyId: string, agentId: string, newCapUsd: number) {
     const res = await fetch(
       companyPath(DEFAULT_BASE, companyId, `/agents/${agentId}/budget-increase`),
@@ -195,7 +209,7 @@ export const api = {
 
   async listBudgets(companyId: string) {
     const res = await fetch(companyPath(DEFAULT_BASE, companyId, "/budgets"));
-    return json<{ agents: BudgetRow[] }>(res);
+    return json<{ company: CompanyBudgetRollup | null; agents: BudgetRow[] }>(res);
   },
 
   async listAudit(companyId: string) {
@@ -244,6 +258,15 @@ export type DashboardStats = {
   pending_approvals: number;
   open_tickets: number;
   tickets_in_review?: number;
+  company_budget?: CompanyBudgetRollup | null;
+};
+
+export type CompanyBudgetRollup = {
+  cap_usd: number;
+  used_usd: number;
+  remaining_usd: number;
+  warn: boolean;
+  exhausted: boolean;
 };
 
 export type BudgetRow = {

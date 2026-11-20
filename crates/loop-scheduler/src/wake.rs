@@ -124,6 +124,12 @@ impl<'a> Scheduler<'a> {
             if company.archived_at.is_some() {
                 continue;
             }
+            if !BudgetRepository::new(self.store)
+                .company_has_room(company.id, company.monthly_budget_usd)
+                .await?
+            {
+                continue;
+            }
             for agent in agents_repo.list_active(company.id).await? {
                 if agent.paused_reason.is_some() {
                     continue;
@@ -197,6 +203,16 @@ impl<'a> Scheduler<'a> {
         let company = CompanyRepository::new(self.store)
             .get(job.company_id)
             .await?;
+
+        if !BudgetRepository::new(self.store)
+            .company_has_room(job.company_id, company.monthly_budget_usd)
+            .await?
+        {
+            return Ok(DispatchResult {
+                success: false,
+                budget_exhausted: true,
+            });
+        }
 
         let ticket_repo = TicketRepository::new(self.store);
         let mut project_goal: Option<String> = None;

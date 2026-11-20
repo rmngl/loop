@@ -124,6 +124,16 @@ export function HomePage({ onStatsChange }: Props) {
             value={stats.tickets_in_review ?? 0}
             warn={(stats.tickets_in_review ?? 0) > 0}
           />
+          {stats.company_budget && !stats.company_budget.exhausted && (
+            <KpiTile
+              label="Co. budget left ($)"
+              value={Math.floor(stats.company_budget.remaining_usd)}
+              warn={stats.company_budget.warn}
+            />
+          )}
+          {stats.company_budget?.exhausted && (
+            <KpiTile label="Co. budget" value={0} warn />
+          )}
         </div>
       )}
     </div>

@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- **Company monthly budget ceiling** (Paperclip org cap): migration, scheduler block, Budgets + Dashboard UI
 - Boardroom UI (design tokens, PageHeader, KPI tiles, grouped nav)
 - Paperclip-aligned org **reports-to**, ticket **review gate** (`in_review`), adapter `ready_for_review` signals
 - [PAPERCLIP_PARITY.md](docs/PAPERCLIP_PARITY.md)

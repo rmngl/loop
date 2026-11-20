@@ -38,6 +38,7 @@ impl<'a> CompanyRepository<'a> {
             id,
             name: name.to_string(),
             mission: mission.to_string(),
+            monthly_budget_usd: None,
             archived_at: None,
             created_at: now,
         })
@@ -46,7 +47,7 @@ impl<'a> CompanyRepository<'a> {
     pub async fn list(&self) -> Result<Vec<Company>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, name, mission, archived_at, created_at
+            SELECT id, name, mission, monthly_budget_usd, archived_at, created_at
             FROM companies
             ORDER BY created_at ASC
             "#,
@@ -61,7 +62,7 @@ impl<'a> CompanyRepository<'a> {
     pub async fn get(&self, company_id: CompanyId) -> Result<Company> {
         let row = sqlx::query(
             r#"
-            SELECT id, name, mission, archived_at, created_at
+            SELECT id, name, mission, monthly_budget_usd, archived_at, created_at
             FROM companies WHERE id = ?1
             "#,
         )
@@ -77,6 +78,28 @@ impl<'a> CompanyRepository<'a> {
     pub async fn update_mission(&self, company_id: CompanyId, mission: &str) -> Result<Company> {
         let result = sqlx::query(r#"UPDATE companies SET mission = ?1 WHERE id = ?2"#)
             .bind(mission)
+            .bind(company_id.to_string())
+            .execute(self.store.pool())
+            .await
+            .map_err(|e| LoopError::Database(e.to_string()))?;
+        if result.rows_affected() == 0 {
+            return Err(LoopError::NotFound(format!("company {}", company_id)));
+        }
+        self.get(company_id).await
+    }
+
+    pub async fn update_monthly_budget(
+        &self,
+        company_id: CompanyId,
+        cap: Option<f64>,
+    ) -> Result<Company> {
+        if let Some(v) = cap {
+            if v < 0.0 {
+                return Err(LoopError::Validation("monthly_budget_usd must be >= 0".into()));
+            }
+        }
+        let result = sqlx::query(r#"UPDATE companies SET monthly_budget_usd = ?1 WHERE id = ?2"#)
+            .bind(cap)
             .bind(company_id.to_string())
             .execute(self.store.pool())
             .await
@@ -106,10 +129,14 @@ fn row_to_company(row: sqlx::sqlite::SqliteRow) -> Result<Company> {
     let id_str: String = row.try_get("id").map_err(|e| LoopError::Database(e.to_string()))?;
     let id = CompanyId(Uuid::parse_str(&id_str).map_err(|e| LoopError::Validation(e.to_string()))?);
     let archived_at: Option<String> = row.try_get("archived_at").ok();
+    let monthly_budget_usd: Option<f64> = row
+        .try_get::<Option<f64>, _>("monthly_budget_usd")
+        .map_err(|e| LoopError::Database(e.to_string()))?;
     Ok(Company {
         id,
         name: row.try_get("name").map_err(|e| LoopError::Database(e.to_string()))?,
         mission: row.try_get("mission").map_err(|e| LoopError::Database(e.to_string()))?,
+        monthly_budget_usd,
         archived_at: archived_at
             .filter(|s| !s.is_empty())
             .map(|s| chrono::DateTime::parse_from_rfc3339(&s).map(|d| d.with_timezone(&Utc)))

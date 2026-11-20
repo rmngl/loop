@@ -12,7 +12,7 @@ Reference: [Paperclip key concepts](https://docs.paperclip.ing/guides/welcome/ke
 | **Org chart for agents** — roles, reporting, governance | Hire + approvals, **`parent_agent_id` / reports-to**, budgets per agent |
 | **Goal alignment** | Company mission → project goal → ticket context in `HeartbeatIn` |
 | **Heartbeats** | Cron tick + assign wake + manual heartbeat via adapters |
-| **Cost control** | Per-agent monthly cap, 80% warn / 100% stop |
+| **Cost control** | Per-agent cap + **company monthly ceiling** (80% warn / 100% stop heartbeats) |
 | **Multi-organization** | Multi-company SQLite + switcher |
 | **Governance** | Hire, strategy ticket, budget increase approvals |
 | **Audit** | Append-only audit log |
@@ -22,6 +22,7 @@ Reference: [Paperclip key concepts](https://docs.paperclip.ing/guides/welcome/ke
 - **Reports-to on org chart** — hire with `parent_agent_id`; API + Org UI.
 - **Task review gate** — agent or board submits work → `in_review`; board **Approve done** or **Request changes**; adapter may set `HeartbeatOut.status` to `ready_for_review`.
 - **Dashboard** — KPI for tickets awaiting review; **Tickets** nav badge when `in_review` > 0.
+- **Company monthly budget** — `companies.monthly_budget_usd`, Budgets UI, heartbeat block when org cap exhausted.
 - **API tests** — `ticket_review_gate` (submit → approve done; request changes).
 
 ## Deferred (intentionally local / post-cloud)
@@ -33,7 +34,7 @@ Reference: [Paperclip key concepts](https://docs.paperclip.ing/guides/welcome/ke
 | Sandboxed runs / secrets vault | Process adapters + OS keychain (design spec) |
 | SSO / multi-human RBAC | Single local board user |
 | Ready-made teams / mobile | Desktop + browser ops UI first |
-| Company-wide budget rollup UI | Per-agent caps today; company cap later |
+| Company-wide budget beyond monthly rollup | Approval flows for org-wide cap increase (future) |
 
 ## Daily workflow (Paperclip-style)
 

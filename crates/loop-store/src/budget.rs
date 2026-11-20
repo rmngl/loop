@@ -148,4 +148,50 @@ impl<'a> BudgetRepository<'a> {
             Ok(cap)
         }
     }
+
+    /// Sum of agent `used_usd` for the current calendar month within one company.
+    pub async fn company_used_usd(&self, company_id: CompanyId) -> Result<f64> {
+        let now = Utc::now();
+        let sum: Option<f64> = sqlx::query_scalar(
+            r#"
+            SELECT COALESCE(SUM(used_usd), 0)
+            FROM budget_periods
+            WHERE company_id = ?1 AND year = ?2 AND month = ?3
+            "#,
+        )
+        .bind(company_id.to_string())
+        .bind(now.year())
+        .bind(now.month() as i32)
+        .fetch_one(self.store.pool())
+        .await
+        .map_err(|e| LoopError::Database(e.to_string()))?;
+        Ok(sum.unwrap_or(0.0))
+    }
+
+    /// When the company has a monthly cap, returns spend status for the org (80% warn, 100% stop).
+    pub async fn company_cap_status(
+        &self,
+        company_id: CompanyId,
+        cap: f64,
+    ) -> Result<BudgetStatus> {
+        let used = self.company_used_usd(company_id).await?;
+        let ratio = if cap > 0.0 { used / cap } else { 0.0 };
+        Ok(BudgetStatus {
+            used_usd: used,
+            cap_usd: cap,
+            warn: ratio >= 0.8 && ratio < 1.0,
+            exhausted: ratio >= 1.0,
+        })
+    }
+
+    pub async fn company_has_room(&self, company_id: CompanyId, cap: Option<f64>) -> Result<bool> {
+        let Some(cap) = cap else {
+            return Ok(true);
+        };
+        if cap <= 0.0 {
+            return Ok(false);
+        }
+        let used = self.company_used_usd(company_id).await?;
+        Ok(used < cap)
+    }
 }

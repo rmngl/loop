@@ -67,6 +67,8 @@ pub struct Company {
     pub id: CompanyId,
     pub name: String,
     pub mission: String,
+    /// Organization-wide monthly spend ceiling; `None` means unlimited.
+    pub monthly_budget_usd: Option<f64>,
     pub archived_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 }

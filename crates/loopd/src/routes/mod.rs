@@ -99,6 +99,8 @@ struct CompanyResponse {
     id: String,
     name: String,
     mission: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    monthly_budget_usd: Option<f64>,
     archived: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     archived_at: Option<String>,
@@ -109,6 +111,7 @@ fn company_to_response(c: loop_core::domain::Company) -> CompanyResponse {
         id: c.id.to_string(),
         name: c.name,
         mission: c.mission,
+        monthly_budget_usd: c.monthly_budget_usd,
         archived: c.archived_at.is_some(),
         archived_at: c.archived_at.map(|d| d.to_rfc3339()),
     }
@@ -552,14 +555,26 @@ async fn list_budgets(
     Path(company_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let company_id = parse_company(&company_id)?;
+    let company = CompanyRepository::new(&state.store).get(company_id).await?;
+    let budgets = BudgetRepository::new(&state.store);
+    let company_rollup = if let Some(cap) = company.monthly_budget_usd {
+        let status = budgets.company_cap_status(company_id, cap).await?;
+        Some(serde_json::json!({
+            "cap_usd": cap,
+            "used_usd": status.used_usd,
+            "remaining_usd": (cap - status.used_usd).max(0.0),
+            "warn": status.warn,
+            "exhausted": status.exhausted,
+        }))
+    } else {
+        None
+    };
     let agents = AgentRepository::new(&state.store)
         .list_active(company_id)
         .await?;
     let mut rows = Vec::new();
     for a in agents {
-        let remaining = loop_store::BudgetRepository::new(&state.store)
-            .remaining_usd(company_id, a.id)
-            .await?;
+        let remaining = budgets.remaining_usd(company_id, a.id).await?;
         rows.push(serde_json::json!({
             "agent_id": a.id.to_string(),
             "title": a.title,
@@ -568,7 +583,10 @@ async fn list_budgets(
             "paused_reason": a.paused_reason,
         }));
     }
-    Ok(Json(serde_json::json!({ "agents": rows })))
+    Ok(Json(serde_json::json!({
+        "company": company_rollup,
+        "agents": rows
+    })))
 }
 
 async fn list_audit(
@@ -598,6 +616,8 @@ fn adapter_kind_api(k: &AdapterKind) -> &'static str {
 #[derive(Deserialize)]
 struct PatchCompanyBody {
     mission: Option<String>,
+    monthly_budget_usd: Option<f64>,
+    clear_monthly_budget: Option<bool>,
 }
 
 async fn patch_company(
@@ -606,12 +626,34 @@ async fn patch_company(
     Json(body): Json<PatchCompanyBody>,
 ) -> Result<Json<CompanyResponse>, AppError> {
     let company_id = parse_company(&company_id)?;
-    let mission = body
-        .mission
-        .ok_or_else(|| AppError(LoopError::Validation("mission required".into())))?;
-    let c = CompanyRepository::new(&state.store)
-        .update_mission(company_id, &mission)
-        .await?;
+    let wants_mission = body.mission.is_some();
+    let wants_cap = body.monthly_budget_usd.is_some();
+    let wants_clear = body.clear_monthly_budget == Some(true);
+    if !wants_mission && !wants_cap && !wants_clear {
+        return Err(AppError(LoopError::Validation(
+            "provide mission, monthly_budget_usd, or clear_monthly_budget".into(),
+        )));
+    }
+    let repo = CompanyRepository::new(&state.store);
+    let mut c = repo.get(company_id).await?;
+    if let Some(mission) = body.mission {
+        c = repo.update_mission(company_id, &mission).await?;
+    }
+    if wants_clear {
+        c = repo.update_monthly_budget(company_id, None).await?;
+        AuditLog::new(&state.store)
+            .append(company_id, "company_budget_cleared", serde_json::json!({}))
+            .await?;
+    } else if let Some(cap) = body.monthly_budget_usd {
+        c = repo.update_monthly_budget(company_id, Some(cap)).await?;
+        AuditLog::new(&state.store)
+            .append(
+                company_id,
+                "company_budget_set",
+                serde_json::json!({ "monthly_budget_usd": cap }),
+            )
+            .await?;
+    }
     Ok(Json(company_to_response(c)))
 }
 
@@ -673,10 +715,22 @@ async fn dashboard(
     Path(company_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let company_id = parse_company(&company_id)?;
+    let company = CompanyRepository::new(&state.store).get(company_id).await?;
     let agents = AgentRepository::new(&state.store).list(company_id).await?;
     let mut budget_warn = 0u32;
     let mut budget_stopped = 0u32;
     let budgets = BudgetRepository::new(&state.store);
+    let mut company_budget = serde_json::Value::Null;
+    if let Some(cap) = company.monthly_budget_usd {
+        let status = budgets.company_cap_status(company_id, cap).await?;
+        company_budget = serde_json::json!({
+            "cap_usd": cap,
+            "used_usd": status.used_usd,
+            "remaining_usd": (cap - status.used_usd).max(0.0),
+            "warn": status.warn,
+            "exhausted": status.exhausted,
+        });
+    }
     for a in &agents {
         if a.paused_reason.as_deref() == Some("budget") {
             budget_stopped += 1;
@@ -699,6 +753,7 @@ async fn dashboard(
         "pending_approvals": pending,
         "open_tickets": tickets.iter().filter(|t| t.status == TicketStatus::Open || t.status == TicketStatus::InProgress).count(),
         "tickets_in_review": tickets.iter().filter(|t| t.status == TicketStatus::InReview).count(),
+        "company_budget": company_budget,
     })))
 }
 
