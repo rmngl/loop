@@ -1,0 +1,16 @@
+[package]
+name = "loop-adapters"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+loop-core = { path = "../loop-core" }
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

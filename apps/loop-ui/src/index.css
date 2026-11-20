@@ -1,0 +1,107 @@
+:root {
+  color-scheme: dark;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    sans-serif;
+  background: #0c0c0e;
+  color: #e8e8ed;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  border-right: 1px solid #27272a;
+  padding: 1rem;
+  background: #101014;
+}
+
+.sidebar h1 {
+  font-size: 1.1rem;
+  margin: 0 0 1rem;
+  letter-spacing: 0.02em;
+}
+
+.nav a {
+  display: block;
+  padding: 0.45rem 0.6rem;
+  color: #a1a1aa;
+  text-decoration: none;
+  border-radius: 6px;
+  margin-bottom: 0.2rem;
+}
+
+.nav a.active,
+.nav a:hover {
+  background: #27272a;
+  color: #fafafa;
+}
+
+.main {
+  padding: 1.5rem 2rem;
+}
+
+.panel {
+  background: #141419;
+  border: 1px solid #27272a;
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+}
+
+.row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  border-radius: 6px;
+  border: 1px solid #3f3f46;
+  background: #18181b;
+  color: #fafafa;
+  padding: 0.4rem 0.6rem;
+}
+
+button {
+  cursor: pointer;
+  background: #3b82f6;
+  border-color: #2563eb;
+}
+
+button.secondary {
+  background: #27272a;
+  border-color: #3f3f46;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.5rem;
+  border-bottom: 1px solid #27272a;
+}
+
+.muted {
+  color: #71717a;
+}

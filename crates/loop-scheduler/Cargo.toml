@@ -1,0 +1,18 @@
+[package]
+name = "loop-scheduler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+loop-core = { path = "../loop-core" }
+loop-store = { path = "../loop-store" }
+loop-adapters = { path = "../loop-adapters" }
+chrono.workspace = true
+croner.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
