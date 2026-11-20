@@ -48,6 +48,7 @@ Override with `LOOP_DB_PATH`, `LOOP_DATA_DIR`, `LOOPD_BIN`, `LISTEN_ADDR`.
 4. **Tickets** — One assignee per ticket (Paperclip-style ownership). Optionally set a **reviewer** agent (or auto-pick assignee’s manager on submit). Assign → **in_progress** → **Submit for review** → reviewer heartbeat (`heartbeat_mode: review`) → board **Approve done**. See [PAPERCLIP_PARITY.md](PAPERCLIP_PARITY.md).
 5. **Budgets** — Monthly caps per agent; 80% warn, 100% hard stop. Request a cap increase → approve on **Approvals**.
 6. **Audit** — Append-only log of governance and system events.
+7. **Tool gateway & org cap approvals** — Full click-through: [GOVERNANCE_DOGFOOD.md](GOVERNANCE_DOGFOOD.md).
 
 ## Heartbeats
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type ToolEvaluateResult, type ToolPolicyRow } from "../api/loopd";
+import { api, type ToolEvaluateResult, type ToolInvokeResult, type ToolPolicyRow } from "../api/loopd";
 import { Badge } from "../components/Badge";
 import { EmptyState } from "../components/EmptyState";
 import { PageHeader } from "../components/PageHeader";
@@ -26,6 +26,8 @@ export function ToolsPage() {
   const [disposition, setDisposition] = useState("allow");
   const [probeTool, setProbeTool] = useState("mcp:github:create_pr");
   const [lastProbe, setLastProbe] = useState<ToolEvaluateResult | null>(null);
+  const [lastInvoke, setLastInvoke] = useState<ToolInvokeResult | null>(null);
+  const [invokeError, setInvokeError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!activeCompanyId) return;
@@ -53,6 +55,21 @@ export function ToolsPage() {
     if (!activeCompanyId) return;
     const r = await api.evaluateTool(activeCompanyId, probeTool);
     setLastProbe(r);
+    setLastInvoke(null);
+    setInvokeError(null);
+  }
+
+  async function invokeStub() {
+    if (!activeCompanyId) return;
+    setInvokeError(null);
+    try {
+      const r = await api.invokeTool(activeCompanyId, probeTool, undefined, { probe: true });
+      setLastInvoke(r);
+      await probe();
+    } catch (e) {
+      setLastInvoke(null);
+      setInvokeError(e instanceof Error ? e.message : String(e));
+    }
   }
 
   async function requestUse() {
@@ -79,12 +96,13 @@ export function ToolsPage() {
   const showRequestUse =
     lastProbe?.disposition === "ask" && !lastProbe.allowed && !lastProbe.pending_approval_id;
   const showConsume = Boolean(lastProbe?.allowed && lastProbe.grant_id);
+  const showInvoke = Boolean(lastProbe?.allowed);
 
   return (
     <div>
       <PageHeader
         title="Tool gateway"
-        description="MCP/tool allow · ask · block (Paperclip-style). Ask routes to Approvals; approved grants are one-time via consume."
+        description="MCP/tool allow · ask · block (Paperclip-style). Ask → Approvals → grant; Invoke runs the policy-gated stub (consumes grant when applicable)."
       />
       <div className="panel" style={{ marginBottom: "1rem" }}>
         <h3>Add policy</h3>
@@ -122,6 +140,11 @@ export function ToolsPage() {
               Consume grant
             </button>
           )}
+          {showInvoke && (
+            <button type="button" onClick={() => invokeStub().catch(alert)}>
+              Invoke (stub)
+            </button>
+          )}
         </div>
         {lastProbe && (
           <p className="muted" style={{ marginTop: "0.5rem" }}>
@@ -132,6 +155,18 @@ export function ToolsPage() {
         {lastProbe?.pending_approval_id && (
           <p className="muted" style={{ marginTop: "0.35rem", fontSize: "0.9rem" }}>
             Waiting on board approval — see Approvals tab.
+          </p>
+        )}
+        {invokeError && (
+          <p className="muted" style={{ marginTop: "0.5rem", color: "var(--color-danger, #c44)" }}>
+            Invoke denied: {invokeError}
+          </p>
+        )}
+        {lastInvoke && (
+          <p className="muted" style={{ marginTop: "0.5rem", fontSize: "0.9rem" }}>
+            Invoke: <code>{lastInvoke.status}</code>
+            {lastInvoke.grant_consumed ? " · grant consumed" : ""} —{" "}
+            <code>{JSON.stringify(lastInvoke.result)}</code>
           </p>
         )}
       </div>

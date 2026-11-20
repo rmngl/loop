@@ -75,7 +75,7 @@ When policy allows (including unused grant after ask approval), returns:
 
 Denied calls return **403** (`policy denied`). Ask without grant/approval includes `approval_or_grant_required` in the error payload.
 
-Adapters: use `loop_adapters::GatewayClient` or raw HTTP; Hermes/process get `LOOPD_URL` + company/agent ids. See [ADAPTERS.md](ADAPTERS.md).
+Adapters: use `loop_adapters::GatewayClient` or raw HTTP; Hermes/process get `LOOPD_URL` + company/agent ids. See [ADAPTERS.md](ADAPTERS.md). In the UI, **Governance → Tool gateway → Invoke (stub)** after Evaluate shows `allowed=true`.
 
 `ask` and `block` append `tool_gateway_evaluate` to the audit log. Successful invokes append `tool_invoke_stub`; grants are consumed on invoke when applicable.
 

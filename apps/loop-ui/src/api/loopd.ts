@@ -294,6 +294,18 @@ export const api = {
     if (!res.ok) throw new Error(await res.text());
   },
 
+  async invokeTool(companyId: string, tool: string, agentId?: string, input?: unknown) {
+    const body: Record<string, unknown> = { tool };
+    if (agentId) body.agent_id = agentId;
+    if (input !== undefined) body.input = input;
+    const res = await fetch(companyPath(DEFAULT_BASE, companyId, "/tools/invoke"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return json<ToolInvokeResult>(res);
+  },
+
   async triggerHeartbeat(companyId: string, agentId: string) {
     const res = await fetch(
       companyPath(DEFAULT_BASE, companyId, `/agents/${agentId}/heartbeat`),
@@ -388,6 +400,14 @@ export type ToolUseRequestResult = {
   matched_pattern?: string | null;
   grant_id?: string;
   approval_id?: string;
+};
+
+export type ToolInvokeResult = {
+  status: string;
+  tool: string;
+  disposition: string;
+  grant_consumed: boolean;
+  result: unknown;
 };
 
 export async function listCompanies(base = DEFAULT_BASE) {

@@ -9,6 +9,7 @@ Local-first **agent company operating system** (Rust): missions, projects, org c
 - [Paperclip parity map](docs/PAPERCLIP_PARITY.md) (feature reference)
 - [Tool gateway stub](docs/TOOL_GATEWAY.md)
 - [Getting started](docs/GETTING_STARTED.md)
+- [Governance dogfood](docs/GOVERNANCE_DOGFOOD.md) (manual playbook)
 - [Adapter protocol](docs/ADAPTERS.md)
 - [Design spec](docs/superpowers/specs/2026-11-20-loop-agent-company-os-design.md)
 - [MVP plan](docs/superpowers/plans/2026-11-20-loop-mvp.md)
