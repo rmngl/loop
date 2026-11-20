@@ -1,6 +1,6 @@
 # Tool gateway (stub)
 
-Paperclip-style **allow / ask / block** for external tools (MCP, APIs). v1 stores policies and **evaluates** requests; it does not proxy tool calls yet.
+Paperclip-style **allow / ask / block** for external tools (MCP, APIs). v1 stores policies, **evaluates** requests, and exposes a policy-gated **invoke stub** (no real MCP server yet).
 
 ## Patterns
 
@@ -54,6 +54,29 @@ POST /v1/companies/{company_id}/tools/consume
      { "grant_id": "..." }
 ```
 
-`ask` and `block` append `tool_gateway_evaluate` to the audit log. Adapters should call **evaluate** before invoking a tool, **request-use** when `ask` and not allowed, and **consume** after a successful invocation.
+## Invoke stub (adapter entry point)
+
+```http
+POST /v1/companies/{company_id}/tools/invoke
+     { "tool": "mcp:deploy:prod", "agent_id": "<optional>", "input": {} }
+```
+
+When policy allows (including unused grant after ask approval), returns:
+
+```json
+{
+  "status": "invoked",
+  "tool": "mcp:deploy:prod",
+  "disposition": "ask",
+  "grant_consumed": true,
+  "result": { "stub": true, "message": "MCP proxy stub — no external MCP server called" }
+}
+```
+
+Denied calls return **403** (`policy denied`). Ask without grant/approval includes `approval_or_grant_required` in the error payload.
+
+Adapters: use `loop_adapters::GatewayClient` or raw HTTP; Hermes/process get `LOOPD_URL` + company/agent ids. See [ADAPTERS.md](ADAPTERS.md).
+
+`ask` and `block` append `tool_gateway_evaluate` to the audit log. Successful invokes append `tool_invoke_stub`; grants are consumed on invoke when applicable.
 
 See [PAPERCLIP_PARITY.md](PAPERCLIP_PARITY.md).

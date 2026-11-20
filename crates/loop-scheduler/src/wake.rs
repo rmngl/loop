@@ -243,6 +243,7 @@ impl<'a> Scheduler<'a> {
             None
         };
 
+        let loopd_url = std::env::var("LOOPD_URL").unwrap_or_else(|_| "http://127.0.0.1:7841".into());
         let input = HeartbeatIn {
             company_id: job.company_id,
             agent_id: job.agent_id,
@@ -253,6 +254,7 @@ impl<'a> Scheduler<'a> {
                 agent_goal,
                 ticket: ticket_context,
                 heartbeat_mode,
+                loopd_url: Some(loopd_url),
             },
             budget_remaining_usd: remaining,
         };

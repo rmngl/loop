@@ -112,6 +112,10 @@ pub fn router() -> Router<Arc<AppState>> {
             "/v1/companies/{company_id}/tools/consume",
             post(consume_tool_grant),
         )
+        .route(
+            "/v1/companies/{company_id}/tools/invoke",
+            post(invoke_tool),
+        )
 }
 
 async fn health() -> Json<serde_json::Value> {
@@ -1109,18 +1113,26 @@ fn parse_optional_agent(s: &Option<String>) -> Result<Option<AgentId>, AppError>
     }
 }
 
-async fn evaluate_tool(
-    State(state): State<Arc<AppState>>,
-    Path(company_id): Path<String>,
-    Json(body): Json<EvaluateToolBody>,
-) -> Result<Json<serde_json::Value>, AppError> {
-    let company_id = parse_company(&company_id)?;
-    let agent_id = parse_optional_agent(&body.agent_id)?;
+struct ToolGateView {
+    disposition: ToolDisposition,
+    matched_pattern: Option<String>,
+    allowed: bool,
+    grant_id: Option<String>,
+    pending_approval_id: Option<String>,
+}
+
+async fn resolve_tool_gate(
+    state: &AppState,
+    company_id: CompanyId,
+    tool: &str,
+    agent_id: Option<AgentId>,
+    agent_id_str: Option<&str>,
+) -> Result<ToolGateView, AppError> {
     let result = ToolGateway::new(
         ToolPolicyRepository::new(&state.store),
         AuditLog::new(&state.store),
     )
-    .evaluate(company_id, &body.tool, agent_id)
+    .evaluate(company_id, tool, agent_id)
     .await?;
 
     let grants = ToolGrantRepository::new(&state.store);
@@ -1130,13 +1142,10 @@ async fn evaluate_tool(
         ToolDisposition::Allow => (true, None, None),
         ToolDisposition::Block => (false, None, None),
         ToolDisposition::Ask => {
-            if let Some(gid) = grants
-                .has_unused(company_id, &body.tool, agent_id)
-                .await?
-            {
+            if let Some(gid) = grants.has_unused(company_id, tool, agent_id).await? {
                 (true, Some(gid.to_string()), None)
             } else if let Some(pending_id) = approvals
-                .find_pending_tool_use(company_id, &body.tool, body.agent_id.as_deref())
+                .find_pending_tool_use(company_id, tool, agent_id_str)
                 .await?
             {
                 (false, None, Some(pending_id.to_string()))
@@ -1146,12 +1155,125 @@ async fn evaluate_tool(
         }
     };
 
+    Ok(ToolGateView {
+        disposition: result.disposition,
+        matched_pattern: result.matched_pattern,
+        allowed,
+        grant_id,
+        pending_approval_id,
+    })
+}
+
+async fn evaluate_tool(
+    State(state): State<Arc<AppState>>,
+    Path(company_id): Path<String>,
+    Json(body): Json<EvaluateToolBody>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let company_id = parse_company(&company_id)?;
+    let agent_id = parse_optional_agent(&body.agent_id)?;
+    let view = resolve_tool_gate(
+        &state,
+        company_id,
+        &body.tool,
+        agent_id,
+        body.agent_id.as_deref(),
+    )
+    .await?;
+
     Ok(Json(serde_json::json!({
-        "disposition": result.disposition.as_str(),
-        "matched_pattern": result.matched_pattern,
-        "allowed": allowed,
-        "grant_id": grant_id,
-        "pending_approval_id": pending_approval_id,
+        "disposition": view.disposition.as_str(),
+        "matched_pattern": view.matched_pattern,
+        "allowed": view.allowed,
+        "grant_id": view.grant_id,
+        "pending_approval_id": view.pending_approval_id,
+    })))
+}
+
+#[derive(Deserialize)]
+struct InvokeToolBody {
+    tool: String,
+    agent_id: Option<String>,
+    #[serde(default)]
+    input: Option<serde_json::Value>,
+}
+
+async fn invoke_tool(
+    State(state): State<Arc<AppState>>,
+    Path(company_id): Path<String>,
+    Json(body): Json<InvokeToolBody>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let company_id = parse_company(&company_id)?;
+    let agent_id = parse_optional_agent(&body.agent_id)?;
+    let view = resolve_tool_gate(
+        &state,
+        company_id,
+        &body.tool,
+        agent_id,
+        body.agent_id.as_deref(),
+    )
+    .await?;
+
+    if !view.allowed {
+        let msg = match view.disposition {
+            ToolDisposition::Block => format!(
+                "tool blocked by policy {}",
+                view.matched_pattern.unwrap_or_default()
+            ),
+            ToolDisposition::Ask => serde_json::json!({
+                "reason": "approval_or_grant_required",
+                "pending_approval_id": view.pending_approval_id,
+                "matched_pattern": view.matched_pattern,
+            })
+            .to_string(),
+            ToolDisposition::Allow => "tool not allowed".into(),
+        };
+        return Err(AppError(LoopError::PolicyDenied(msg)));
+    }
+
+    let mut grant_consumed = false;
+    if let Some(gid) = &view.grant_id {
+        let grant_id = ToolUseGrantId::from_uuid(
+            Uuid::parse_str(gid).map_err(|e| AppError(LoopError::Validation(e.to_string())))?,
+        );
+        ToolGrantRepository::new(&state.store)
+            .consume(company_id, grant_id)
+            .await?;
+        grant_consumed = true;
+        AuditLog::new(&state.store)
+            .append(
+                company_id,
+                "tool_use_consumed",
+                serde_json::json!({ "grant_id": gid, "via": "invoke" }),
+            )
+            .await?;
+    }
+
+    let result = serde_json::json!({
+        "stub": true,
+        "tool": body.tool,
+        "input": body.input,
+        "message": "MCP proxy stub — no external MCP server called",
+    });
+
+    AuditLog::new(&state.store)
+        .append(
+            company_id,
+            "tool_invoke_stub",
+            serde_json::json!({
+                "tool": body.tool,
+                "agent_id": body.agent_id,
+                "disposition": view.disposition.as_str(),
+                "grant_consumed": grant_consumed,
+            }),
+        )
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "status": "invoked",
+        "tool": body.tool,
+        "disposition": view.disposition.as_str(),
+        "grant_consumed": grant_consumed,
+        "result": result,
     })))
 }
 

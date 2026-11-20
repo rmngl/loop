@@ -4,6 +4,7 @@ use loop_core::adapter::{HeartbeatIn, HeartbeatOut};
 use loop_core::error::Result;
 use serde_json::to_string;
 
+use crate::gateway_client::GatewayClient;
 use crate::process::ProcessAdapter;
 use crate::traits::AgentAdapter;
 
@@ -28,6 +29,8 @@ impl HermesAdapter {
             .with_env("LOOP_AGENT", "1")
             .with_env("LOOP_COMPANY_ID", input.company_id.to_string())
             .with_env("LOOP_AGENT_ID", input.agent_id.to_string());
+        let loopd = GatewayClient::loopd_url_from_input(input);
+        a = a.with_env("LOOPD_URL", loopd);
         if let Ok(ctx) = to_string(&input.context) {
             a = a.with_env("LOOP_TICKET_CONTEXT", ctx);
         }

@@ -14,6 +14,7 @@ Adapters receive **one line** of JSON (`HeartbeatIn`) on stdin or HTTP POST body
     "project": "Project name — goal",
     "agent_goal": null,
     "heartbeat_mode": "review",
+    "loopd_url": "http://127.0.0.1:7841",
     "ticket": { "ticket_id": "uuid", "title": "…", "description": "…" }
   },
   "budget_remaining_usd": 42.5
@@ -21,6 +22,17 @@ Adapters receive **one line** of JSON (`HeartbeatIn`) on stdin or HTTP POST body
 ```
 
 `heartbeat_mode: "review"` is set when the designated **reviewer agent** is woken for a ticket in `in_review` (Paperclip-style review stage). The board still approves completion in the Loop UI.
+
+`loopd_url` is the base URL for the local **tool gateway** (`POST …/tools/evaluate`, `request-use`, `invoke`, `consume`). Process and Hermes adapters also receive `LOOPD_URL`, `LOOP_COMPANY_ID`, and `LOOP_AGENT_ID` in the environment.
+
+### Tool calls from adapters
+
+Before calling MCP or other external tools, adapters should use the gateway (see [TOOL_GATEWAY.md](TOOL_GATEWAY.md)):
+
+1. `POST {loopd_url}/v1/companies/{company_id}/tools/invoke` with `{ "tool": "mcp:…", "agent_id": "…", "input": {…} }` — policy-gated stub in v1 (consumes one-shot grants after ask approval).
+2. Or call **evaluate** → **request-use** (board Approvals) → **invoke** → grant auto-consumed on invoke.
+
+Rust in-repo client: `loop_adapters::GatewayClient`. Mock adapter: set `LOOP_MOCK_TOOL=mcp:mock:echo` to exercise invoke on each heartbeat.
 
 ## HeartbeatOut
 

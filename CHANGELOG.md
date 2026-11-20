@@ -9,6 +9,7 @@
 - **Tool gateway stub** (allow/ask/block policies, evaluate API, Tools UI)
 - **Tool gateway ask flow** — `tool_use` approvals, one-shot grants (`request-use` / `consume`)
 - **Company budget increase gate** — org monthly cap raises via Approvals (`increase_company_budget`)
+- **Tool gateway invoke stub** — `POST …/tools/invoke`, `GatewayClient`, `loopd_url` in heartbeats, mock `LOOP_MOCK_TOOL`
 - Boardroom UI (design tokens, PageHeader, KPI tiles, grouped nav)
 - Paperclip-aligned org **reports-to**, ticket **review gate** (`in_review`), adapter `ready_for_review` signals
 - [PAPERCLIP_PARITY.md](docs/PAPERCLIP_PARITY.md)

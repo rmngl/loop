@@ -45,6 +45,13 @@ impl AgentAdapter for ProcessAdapter {
         for (k, v) in &self.extra_env {
             child.env(k, v);
         }
+        child.env("LOOP_COMPANY_ID", input.company_id.to_string());
+        child.env("LOOP_AGENT_ID", input.agent_id.to_string());
+        if let Some(url) = &input.context.loopd_url {
+            child.env("LOOPD_URL", url);
+        } else if let Ok(url) = std::env::var("LOOPD_URL") {
+            child.env("LOOPD_URL", url);
+        }
 
         let mut child = child
             .spawn()

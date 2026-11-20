@@ -41,6 +41,9 @@ pub struct HeartbeatContext {
     /// When set to `review`, the agent is the designated reviewer for a ticket in `in_review`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heartbeat_mode: Option<String>,
+    /// Base URL for loopd tool gateway (`http://127.0.0.1:7841`). Adapters call evaluate/invoke here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loopd_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

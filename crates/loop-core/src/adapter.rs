@@ -49,6 +49,7 @@ mod tests {
                 project: Some("Loop".to_string()),
                 agent_goal: None,
                 heartbeat_mode: None,
+                loopd_url: Some("http://127.0.0.1:7841".into()),
                 ticket: Some(crate::domain::TicketSummary {
                     ticket_id,
                     title: "Ship".to_string(),
