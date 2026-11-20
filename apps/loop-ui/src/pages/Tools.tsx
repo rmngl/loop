@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type ToolPolicyRow } from "../api/loopd";
+import { api, type ToolEvaluateResult, type ToolPolicyRow } from "../api/loopd";
 import { Badge } from "../components/Badge";
 import { EmptyState } from "../components/EmptyState";
 import { PageHeader } from "../components/PageHeader";
@@ -11,13 +11,21 @@ function tone(d: string): "success" | "warn" | "danger" {
   return "success";
 }
 
+function formatProbe(r: ToolEvaluateResult): string {
+  let msg = `${r.disposition} — allowed=${r.allowed}`;
+  if (r.matched_pattern) msg += ` (${r.matched_pattern})`;
+  if (r.grant_id) msg += ` · grant ${r.grant_id.slice(0, 8)}…`;
+  if (r.pending_approval_id) msg += ` · pending approval ${r.pending_approval_id.slice(0, 8)}…`;
+  return msg;
+}
+
 export function ToolsPage() {
   const { activeCompanyId } = useCompany();
   const [policies, setPolicies] = useState<ToolPolicyRow[]>([]);
   const [pattern, setPattern] = useState("mcp:*");
   const [disposition, setDisposition] = useState("allow");
   const [probeTool, setProbeTool] = useState("mcp:github:create_pr");
-  const [probeResult, setProbeResult] = useState<string | null>(null);
+  const [lastProbe, setLastProbe] = useState<ToolEvaluateResult | null>(null);
 
   const load = useCallback(async () => {
     if (!activeCompanyId) return;
@@ -44,18 +52,39 @@ export function ToolsPage() {
   async function probe() {
     if (!activeCompanyId) return;
     const r = await api.evaluateTool(activeCompanyId, probeTool);
-    setProbeResult(`${r.disposition}${r.matched_pattern ? ` (matched ${r.matched_pattern})` : ""}`);
+    setLastProbe(r);
+  }
+
+  async function requestUse() {
+    if (!activeCompanyId) return;
+    const r = await api.requestToolUse(activeCompanyId, probeTool);
+    if (r.status === "pending" && r.approval_id) {
+      alert(`Approval queued (${r.approval_id}). Open Approvals to allow one use.`);
+    } else if (r.status === "already_granted" && r.grant_id) {
+      alert(`Already have grant ${r.grant_id}. Evaluate again to consume.`);
+    }
+    await probe();
+  }
+
+  async function consumeGrant() {
+    if (!activeCompanyId || !lastProbe?.grant_id) return;
+    await api.consumeToolGrant(activeCompanyId, lastProbe.grant_id);
+    await probe();
   }
 
   if (!activeCompanyId) {
     return <EmptyState title="Select a company" description="Tool policies are scoped per organization." />;
   }
 
+  const showRequestUse =
+    lastProbe?.disposition === "ask" && !lastProbe.allowed && !lastProbe.pending_approval_id;
+  const showConsume = Boolean(lastProbe?.allowed && lastProbe.grant_id);
+
   return (
     <div>
       <PageHeader
         title="Tool gateway"
-        description="MCP/tool allow · ask · block (Paperclip-style). Evaluation only — adapters call evaluate before running tools."
+        description="MCP/tool allow · ask · block (Paperclip-style). Ask routes to Approvals; approved grants are one-time via consume."
       />
       <div className="panel" style={{ marginBottom: "1rem" }}>
         <h3>Add policy</h3>
@@ -78,13 +107,33 @@ export function ToolsPage() {
       </div>
       <div className="panel panel--inset" style={{ marginBottom: "1rem" }}>
         <h3>Probe</h3>
-        <div className="row">
-          <input value={probeTool} onChange={(e) => setProbeTool(e.target.value)} style={{ flex: 1 }} />
+        <div className="row" style={{ flexWrap: "wrap", gap: "0.5rem" }}>
+          <input value={probeTool} onChange={(e) => setProbeTool(e.target.value)} style={{ flex: 1, minWidth: "12rem" }} />
           <button type="button" className="secondary" onClick={() => probe().catch(alert)}>
             Evaluate
           </button>
+          {showRequestUse && (
+            <button type="button" onClick={() => requestUse().catch(alert)}>
+              Request use
+            </button>
+          )}
+          {showConsume && (
+            <button type="button" className="secondary" onClick={() => consumeGrant().catch(alert)}>
+              Consume grant
+            </button>
+          )}
         </div>
-        {probeResult && <p className="muted" style={{ marginTop: "0.5rem" }}>{probeResult}</p>}
+        {lastProbe && (
+          <p className="muted" style={{ marginTop: "0.5rem" }}>
+            <Badge tone={tone(lastProbe.disposition)}>{lastProbe.disposition}</Badge>{" "}
+            {formatProbe(lastProbe)}
+          </p>
+        )}
+        {lastProbe?.pending_approval_id && (
+          <p className="muted" style={{ marginTop: "0.35rem", fontSize: "0.9rem" }}>
+            Waiting on board approval — see Approvals tab.
+          </p>
+        )}
       </div>
       <div className="panel">
         <table className="data-table">

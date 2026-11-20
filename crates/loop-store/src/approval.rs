@@ -175,4 +175,70 @@ impl<'a> ApprovalRepository<'a> {
 
         Ok(id)
     }
+
+    pub async fn find_pending_tool_use(
+        &self,
+        company_id: CompanyId,
+        tool: &str,
+        agent_id: Option<&str>,
+    ) -> Result<Option<ApprovalId>> {
+        for row in self.list_pending(company_id).await? {
+            if row.kind != "tool_use" {
+                continue;
+            }
+            let p = &row.payload_json;
+            if p.get("tool").and_then(|v| v.as_str()) != Some(tool) {
+                continue;
+            }
+            let payload_agent = p.get("agent_id").and_then(|v| v.as_str());
+            if !same_optional_agent_scope(payload_agent, agent_id) {
+                continue;
+            }
+            return Ok(Some(row.approval_id));
+        }
+        Ok(None)
+    }
+
+    pub async fn create_tool_use(
+        &self,
+        company_id: CompanyId,
+        tool: &str,
+        agent_id: Option<&str>,
+        matched_pattern: Option<&str>,
+    ) -> Result<ApprovalId> {
+        if let Some(existing) = self.find_pending_tool_use(company_id, tool, agent_id).await? {
+            return Ok(existing);
+        }
+        let id = ApprovalId::new();
+        let now = Utc::now();
+        let mut payload = serde_json::json!({ "tool": tool });
+        if let Some(a) = agent_id {
+            payload["agent_id"] = serde_json::json!(a);
+        }
+        if let Some(p) = matched_pattern {
+            payload["matched_pattern"] = serde_json::json!(p);
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO approvals (id, company_id, kind, payload_json, status, created_at)
+            VALUES (?1, ?2, 'tool_use', ?3, 'pending', ?4)
+            "#,
+        )
+        .bind(id.to_string())
+        .bind(company_id.to_string())
+        .bind(payload.to_string())
+        .bind(now.to_rfc3339())
+        .execute(self.store.pool())
+        .await
+        .map_err(|e| LoopError::Database(e.to_string()))?;
+
+        Ok(id)
+    }
+}
+
+fn same_optional_agent_scope(payload: Option<&str>, request: Option<&str>) -> bool {
+    let p = payload.and_then(|s| if s.is_empty() { None } else { Some(s) });
+    let r = request.and_then(|s| if s.is_empty() { None } else { Some(s) });
+    p == r
 }

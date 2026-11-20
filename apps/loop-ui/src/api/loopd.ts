@@ -267,6 +267,24 @@ export const api = {
     return json<ToolEvaluateResult>(res);
   },
 
+  async requestToolUse(companyId: string, tool: string, agentId?: string) {
+    const res = await fetch(companyPath(DEFAULT_BASE, companyId, "/tools/request-use"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool, agent_id: agentId }),
+    });
+    return json<ToolUseRequestResult>(res);
+  },
+
+  async consumeToolGrant(companyId: string, grantId: string) {
+    const res = await fetch(companyPath(DEFAULT_BASE, companyId, "/tools/consume"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ grant_id: grantId }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+  },
+
   async triggerHeartbeat(companyId: string, agentId: string) {
     const res = await fetch(
       companyPath(DEFAULT_BASE, companyId, `/agents/${agentId}/heartbeat`),
@@ -350,6 +368,17 @@ export type ToolEvaluateResult = {
   disposition: string;
   matched_pattern: string | null;
   allowed: boolean;
+  grant_id?: string | null;
+  pending_approval_id?: string | null;
+};
+
+export type ToolUseRequestResult = {
+  status: "allowed" | "already_granted" | "pending";
+  allowed?: boolean;
+  disposition?: string;
+  matched_pattern?: string | null;
+  grant_id?: string;
+  approval_id?: string;
 };
 
 export async function listCompanies(base = DEFAULT_BASE) {

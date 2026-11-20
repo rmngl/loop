@@ -11,8 +11,22 @@ type Props = {
 
 function kindTone(kind: string): "default" | "warn" | "strategy" {
   if (kind.includes("strategy")) return "strategy";
+  if (kind === "tool_use") return "warn";
   if (kind.includes("budget") || kind.includes("hire") || kind.includes("agent")) return "warn";
   return "default";
+}
+
+function formatPayload(kind: string, payload: unknown): string {
+  if (kind !== "tool_use" || typeof payload !== "object" || payload === null) {
+    return JSON.stringify(payload);
+  }
+  const p = payload as Record<string, unknown>;
+  if (typeof p.tool === "string") {
+    const pattern = typeof p.matched_pattern === "string" ? ` (${p.matched_pattern})` : "";
+    const agent = typeof p.agent_id === "string" ? ` · agent ${p.agent_id.slice(0, 8)}…` : "";
+    return `${p.tool}${pattern}${agent}`;
+  }
+  return JSON.stringify(payload);
 }
 
 export function ApprovalsPage({ onApprovalsChange }: Props) {
@@ -46,7 +60,7 @@ export function ApprovalsPage({ onApprovalsChange }: Props) {
     <div>
       <PageHeader
         title="Board approvals"
-        description="Pending hires, strategy tickets, and budget overrides await your sign-off before agents act."
+        description="Pending hires, strategy tickets, budget overrides, and one-shot tool use requests await board sign-off."
         actions={rows.length > 0 ? <Badge tone="pending">{rows.length} pending</Badge> : undefined}
       />
       <div className="panel">
@@ -70,7 +84,7 @@ export function ApprovalsPage({ onApprovalsChange }: Props) {
                     <Badge tone={kindTone(r.kind)}>{r.kind}</Badge>
                   </td>
                   <td>
-                    <code>{JSON.stringify(r.payload)}</code>
+                    <code>{formatPayload(r.kind, r.payload)}</code>
                   </td>
                   <td>
                     <button type="button" onClick={() => approve(r.approval_id).catch(alert)}>

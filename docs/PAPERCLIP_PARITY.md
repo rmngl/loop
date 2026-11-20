@@ -24,7 +24,7 @@ Reference: [Paperclip key concepts](https://docs.paperclip.ing/guides/welcome/ke
 - **Dashboard** — KPI for tickets awaiting review; **Tickets** nav badge when `in_review` > 0.
 - **Company monthly budget** — `companies.monthly_budget_usd`, Budgets UI, heartbeat block when org cap exhausted.
 - **Ticket reviewer** — `reviewer_agent_id`, default manager on submit-review, review heartbeat mode, assign-time override.
-- **Tool gateway stub** — `tool_policies` table, evaluate endpoint, Governance UI.
+- **Tool gateway** — `tool_policies`, evaluate + **ask → Approvals → one-shot grant** (`tool_gateway_ask_flow` test); Governance UI.
 - **Ticket reviewer** — `reviewer_agent_id`; defaults to assignee’s **Reports to** on submit; reviewer heartbeat with `context.heartbeat_mode: "review"`.
 - **API tests** — `ticket_review_gate` (submit → approve done; request changes).
 
@@ -32,7 +32,7 @@ Reference: [Paperclip key concepts](https://docs.paperclip.ing/guides/welcome/ke
 
 | Paperclip | Loop stance |
 |-----------|-------------|
-| Tool gateway (MCP allow/ask/block) | **Stub**: policies + evaluate API + UI; no MCP proxy yet ([TOOL_GATEWAY.md](TOOL_GATEWAY.md)) |
+| Tool gateway MCP proxy | Policies + evaluate + ask approvals/grants; **no MCP proxy** yet ([TOOL_GATEWAY.md](TOOL_GATEWAY.md)) |
 | Skill Studio / shared skills | Adapter `skills_ref` in protocol; no studio UI |
 | Sandboxed runs / secrets vault | Process adapters + OS keychain (design spec) |
 | SSO / multi-human RBAC | Single local board user |

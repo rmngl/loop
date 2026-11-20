@@ -10,7 +10,8 @@ use loop_core::ids::{AgentId, ApprovalId, CompanyId, ProjectId, TicketId};
 use loop_core::tool_policy::ToolDisposition;
 use loop_store::{
     AgentRepository, ApprovalRepository, AuditLog, BudgetRepository, CompanyRepository,
-    HireAgentRequest, ProjectRepository, TicketRepository, ToolPolicyRepository,
+    HireAgentRequest, ProjectRepository, TicketRepository, ToolGrantRepository,
+    ToolPolicyRepository, ToolUseGrantId,
 };
 use loop_policy::{PolicyEngine, ToolGateway};
 use serde::{Deserialize, Serialize};
@@ -98,6 +99,14 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/v1/companies/{company_id}/tools/evaluate",
             post(evaluate_tool),
+        )
+        .route(
+            "/v1/companies/{company_id}/tools/request-use",
+            post(request_tool_use),
+        )
+        .route(
+            "/v1/companies/{company_id}/tools/consume",
+            post(consume_tool_grant),
         )
 }
 
@@ -262,6 +271,36 @@ async fn approve(
         );
         AgentRepository::new(&state.store)
             .apply_budget_override(company_id, agent_id, new_cap)
+            .await?;
+    } else if kind == "tool_use" {
+        let tool = payload
+            .get("tool")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AppError(LoopError::Validation("missing tool".into())))?;
+        let agent_id = payload.get("agent_id").and_then(|v| {
+            v.as_str()
+                .filter(|s| !s.is_empty())
+                .map(|s| Uuid::parse_str(s))
+        });
+        let agent_id = match agent_id {
+            Some(Ok(u)) => Some(AgentId(u)),
+            Some(Err(e)) => return Err(AppError(LoopError::Validation(e.to_string()))),
+            None => None,
+        };
+        let grant_id = ToolGrantRepository::new(&state.store)
+            .create(company_id, tool, agent_id)
+            .await?;
+        AuditLog::new(&state.store)
+            .append(
+                company_id,
+                "tool_use_granted",
+                serde_json::json!({
+                    "grant_id": grant_id.to_string(),
+                    "tool": tool,
+                    "agent_id": agent_id.map(|a| a.to_string()),
+                    "approval_id": approval_id.to_string(),
+                }),
+            )
             .await?;
     }
 
@@ -524,7 +563,7 @@ async fn submit_ticket_review(
     let company_id = parse_company(&company_id)?;
     let ticket_id = parse_ticket_id(&ticket_id)?;
     let repo = TicketRepository::new(&state.store);
-    let mut ticket = repo.get(company_id, ticket_id).await?;
+    let ticket = repo.get(company_id, ticket_id).await?;
 
     if ticket.reviewer_agent_id.is_none() {
         if let Some(assignee_id) = ticket.assignee_agent_id {
@@ -532,8 +571,7 @@ async fn submit_ticket_review(
                 .get(company_id, assignee_id)
                 .await?;
             if let Some(parent) = assignee.parent_agent_id {
-                ticket = repo
-                    .set_reviewer(company_id, ticket_id, Some(parent))
+                repo.set_reviewer(company_id, ticket_id, Some(parent))
                     .await?;
             }
         }
@@ -995,29 +1033,170 @@ struct EvaluateToolBody {
     agent_id: Option<String>,
 }
 
+fn parse_optional_agent(s: &Option<String>) -> Result<Option<AgentId>, AppError> {
+    match s {
+        Some(id) if !id.is_empty() => Ok(Some(AgentId(
+            Uuid::parse_str(id).map_err(|e| AppError(LoopError::Validation(e.to_string())))?,
+        ))),
+        _ => Ok(None),
+    }
+}
+
 async fn evaluate_tool(
     State(state): State<Arc<AppState>>,
     Path(company_id): Path<String>,
     Json(body): Json<EvaluateToolBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let company_id = parse_company(&company_id)?;
-    let agent_id = match body.agent_id {
-        Some(ref s) if !s.is_empty() => Some(AgentId(
-            Uuid::parse_str(s).map_err(|e| AppError(LoopError::Validation(e.to_string())))?,
-        )),
-        _ => None,
-    };
+    let agent_id = parse_optional_agent(&body.agent_id)?;
     let result = ToolGateway::new(
         ToolPolicyRepository::new(&state.store),
         AuditLog::new(&state.store),
     )
     .evaluate(company_id, &body.tool, agent_id)
     .await?;
+
+    let grants = ToolGrantRepository::new(&state.store);
+    let approvals = ApprovalRepository::new(&state.store);
+
+    let (allowed, grant_id, pending_approval_id) = match result.disposition {
+        ToolDisposition::Allow => (true, None, None),
+        ToolDisposition::Block => (false, None, None),
+        ToolDisposition::Ask => {
+            if let Some(gid) = grants
+                .has_unused(company_id, &body.tool, agent_id)
+                .await?
+            {
+                (true, Some(gid.to_string()), None)
+            } else if let Some(pending_id) = approvals
+                .find_pending_tool_use(company_id, &body.tool, body.agent_id.as_deref())
+                .await?
+            {
+                (false, None, Some(pending_id.to_string()))
+            } else {
+                (false, None, None)
+            }
+        }
+    };
+
     Ok(Json(serde_json::json!({
         "disposition": result.disposition.as_str(),
         "matched_pattern": result.matched_pattern,
-        "allowed": result.disposition == ToolDisposition::Allow,
+        "allowed": allowed,
+        "grant_id": grant_id,
+        "pending_approval_id": pending_approval_id,
     })))
+}
+
+async fn request_tool_use(
+    State(state): State<Arc<AppState>>,
+    Path(company_id): Path<String>,
+    Json(body): Json<EvaluateToolBody>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let company_id = parse_company(&company_id)?;
+    let agent_id = parse_optional_agent(&body.agent_id)?;
+    let result = ToolGateway::new(
+        ToolPolicyRepository::new(&state.store),
+        AuditLog::new(&state.store),
+    )
+    .evaluate(company_id, &body.tool, agent_id)
+    .await?;
+
+    match result.disposition {
+        ToolDisposition::Allow => {
+            return Ok(Json(serde_json::json!({
+                "status": "allowed",
+                "allowed": true,
+                "disposition": "allow",
+                "matched_pattern": result.matched_pattern,
+            })));
+        }
+        ToolDisposition::Block => {
+            return Err(AppError(LoopError::Validation(format!(
+                "tool blocked by policy {}",
+                result.matched_pattern.unwrap_or_default()
+            ))));
+        }
+        ToolDisposition::Ask => {}
+    }
+
+    let grants = ToolGrantRepository::new(&state.store);
+    if let Some(gid) = grants
+        .has_unused(company_id, &body.tool, agent_id)
+        .await?
+    {
+        return Ok(Json(serde_json::json!({
+            "status": "already_granted",
+            "grant_id": gid.to_string(),
+        })));
+    }
+
+    let approvals = ApprovalRepository::new(&state.store);
+    if let Some(pending_id) = approvals
+        .find_pending_tool_use(company_id, &body.tool, body.agent_id.as_deref())
+        .await?
+    {
+        return Ok(Json(serde_json::json!({
+            "status": "pending",
+            "approval_id": pending_id.to_string(),
+        })));
+    }
+
+    let agent_scope = agent_id.as_ref().map(|a| a.to_string());
+    let approval_id = approvals
+        .create_tool_use(
+            company_id,
+            &body.tool,
+            agent_scope.as_deref(),
+            result.matched_pattern.as_deref(),
+        )
+        .await?;
+
+    AuditLog::new(&state.store)
+        .append(
+            company_id,
+            "tool_use_requested",
+            serde_json::json!({
+                "tool": body.tool,
+                "agent_id": agent_id.map(|a| a.to_string()),
+                "approval_id": approval_id.to_string(),
+                "matched_pattern": result.matched_pattern,
+            }),
+        )
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "status": "pending",
+        "approval_id": approval_id.to_string(),
+    })))
+}
+
+#[derive(Deserialize)]
+struct ConsumeToolGrantBody {
+    grant_id: String,
+}
+
+async fn consume_tool_grant(
+    State(state): State<Arc<AppState>>,
+    Path(company_id): Path<String>,
+    Json(body): Json<ConsumeToolGrantBody>,
+) -> Result<StatusCode, AppError> {
+    let company_id = parse_company(&company_id)?;
+    let grant_id = ToolUseGrantId::from_uuid(
+        Uuid::parse_str(&body.grant_id)
+            .map_err(|e| AppError(LoopError::Validation(e.to_string())))?,
+    );
+    ToolGrantRepository::new(&state.store)
+        .consume(company_id, grant_id)
+        .await?;
+    AuditLog::new(&state.store)
+        .append(
+            company_id,
+            "tool_use_consumed",
+            serde_json::json!({ "grant_id": body.grant_id }),
+        )
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn agent_status_api(s: &AgentStatus) -> &'static str {
