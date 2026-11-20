@@ -10,6 +10,7 @@ Local-first **agent company operating system** (Rust): missions, projects, org c
 - [Tool gateway stub](docs/TOOL_GATEWAY.md)
 - [Getting started](docs/GETTING_STARTED.md)
 - [Governance dogfood](docs/GOVERNANCE_DOGFOOD.md) (manual playbook)
+- [Project handoff](docs/PROJECT_HANDOFF.md) (status, done / next — other PC)
 - [Adapter protocol](docs/ADAPTERS.md)
 - [Design spec](docs/superpowers/specs/2026-11-20-loop-agent-company-os-design.md)
 - [MVP plan](docs/superpowers/plans/2026-11-20-loop-mvp.md)

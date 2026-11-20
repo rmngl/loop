@@ -11,6 +11,7 @@
 - **Company budget increase gate** — org monthly cap raises via Approvals (`increase_company_budget`)
 - **Tool gateway invoke stub** — `POST …/tools/invoke`, `GatewayClient`, `loopd_url` in heartbeats, mock `LOOP_MOCK_TOOL`
 - **Governance dogfood** — [GOVERNANCE_DOGFOOD.md](docs/GOVERNANCE_DOGFOOD.md); Tools UI **Invoke (stub)** probe
+- **[PROJECT_HANDOFF.md](docs/PROJECT_HANDOFF.md)** — done / next steps for cross-machine work
 - Boardroom UI (design tokens, PageHeader, KPI tiles, grouped nav)
 - Paperclip-aligned org **reports-to**, ticket **review gate** (`in_review`), adapter `ready_for_review` signals
 - [PAPERCLIP_PARITY.md](docs/PAPERCLIP_PARITY.md)
