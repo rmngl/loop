@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, Utc};
 use loop_adapters::adapter_for;
 use loop_core::adapter::HeartbeatIn;
-use loop_core::domain::{AgentStatus, HeartbeatContext, TicketSummary};
+use loop_core::domain::{AgentStatus, HeartbeatContext, TicketStatus, TicketSummary};
 use loop_core::error::{LoopError, Result};
 use loop_core::ids::{AgentId, CompanyId, TicketId};
 use loop_store::{
@@ -216,6 +216,8 @@ impl<'a> Scheduler<'a> {
 
         let ticket_repo = TicketRepository::new(self.store);
         let mut project_goal: Option<String> = None;
+        let mut agent_goal: Option<String> = None;
+        let mut heartbeat_mode: Option<String> = None;
         let ticket_context = if let Some(tid) = job.ticket_id {
             let ticket = ticket_repo.get(job.company_id, tid).await?;
             if let Some(pid) = ticket.project_id {
@@ -223,6 +225,14 @@ impl<'a> Scheduler<'a> {
                     .get(job.company_id, pid)
                     .await?;
                 project_goal = Some(format!("{} — {}", project.name, project.goal));
+            }
+            if ticket.status == TicketStatus::InReview
+                && ticket.reviewer_agent_id == Some(job.agent_id)
+            {
+                heartbeat_mode = Some("review".into());
+                agent_goal = Some(
+                    "Review assignee work on this ticket; inspect trace and board thread; suggest approve or changes.".into(),
+                );
             }
             Some(TicketSummary {
                 ticket_id: tid,
@@ -240,8 +250,9 @@ impl<'a> Scheduler<'a> {
             context: HeartbeatContext {
                 mission: company.mission.clone(),
                 project: project_goal,
-                agent_goal: None,
+                agent_goal,
                 ticket: ticket_context,
+                heartbeat_mode,
             },
             budget_remaining_usd: remaining,
         };

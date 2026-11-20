@@ -128,16 +128,34 @@ export const api = {
     if (!res.ok) throw new Error(await res.text());
   },
 
-  async assignTicket(companyId: string, ticketId: string, agentId: string) {
+  async assignTicket(
+    companyId: string,
+    ticketId: string,
+    agentId: string,
+    reviewerAgentId?: string | null
+  ) {
     const res = await fetch(
       companyPath(DEFAULT_BASE, companyId, `/tickets/${ticketId}/assign`),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agent_id: agentId }),
+        body: JSON.stringify({
+          agent_id: agentId,
+          reviewer_agent_id: reviewerAgentId ?? undefined,
+        }),
       }
     );
     if (!res.ok) throw new Error(await res.text());
+  },
+
+  async setTicketReviewer(companyId: string, ticketId: string, agentId: string | null) {
+    const body = agentId ? { agent_id: agentId } : { clear: true };
+    const res = await fetch(companyPath(DEFAULT_BASE, companyId, `/tickets/${ticketId}/reviewer`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return json<{ ticket_id: string; reviewer_agent_id: string | null }>(res);
   },
 
   async getTicket(companyId: string, ticketId: string) {
@@ -217,6 +235,38 @@ export const api = {
     return json<{ entries: AuditRow[] }>(res);
   },
 
+  async listToolPolicies(companyId: string) {
+    const res = await fetch(companyPath(DEFAULT_BASE, companyId, "/tool-policies"));
+    return json<{ policies: ToolPolicyRow[] }>(res);
+  },
+
+  async upsertToolPolicy(companyId: string, toolPattern: string, disposition: string) {
+    const res = await fetch(companyPath(DEFAULT_BASE, companyId, "/tool-policies"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool_pattern: toolPattern, disposition }),
+    });
+    return json<ToolPolicyRow>(res);
+  },
+
+  async removeToolPolicy(companyId: string, toolPattern: string) {
+    const res = await fetch(companyPath(DEFAULT_BASE, companyId, "/tool-policies/remove"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool_pattern: toolPattern }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+  },
+
+  async evaluateTool(companyId: string, tool: string, agentId?: string) {
+    const res = await fetch(companyPath(DEFAULT_BASE, companyId, "/tools/evaluate"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool, agent_id: agentId }),
+    });
+    return json<ToolEvaluateResult>(res);
+  },
+
   async triggerHeartbeat(companyId: string, agentId: string) {
     const res = await fetch(
       companyPath(DEFAULT_BASE, companyId, `/agents/${agentId}/heartbeat`),
@@ -242,6 +292,7 @@ export type TicketRow = {
   title: string;
   status: string;
   assignee_agent_id: string | null;
+  reviewer_agent_id?: string | null;
   tags: string[];
 };
 
@@ -288,6 +339,17 @@ export type PendingApprovalRow = {
   kind: string;
   payload: unknown;
   created_at: string;
+};
+
+export type ToolPolicyRow = {
+  tool_pattern: string;
+  disposition: string;
+};
+
+export type ToolEvaluateResult = {
+  disposition: string;
+  matched_pattern: string | null;
+  allowed: boolean;
 };
 
 export async function listCompanies(base = DEFAULT_BASE) {

@@ -9,8 +9,9 @@ import { OrgPage } from "./pages/Org";
 import { ApprovalsPage } from "./pages/Approvals";
 import { ProjectsPage } from "./pages/Projects";
 import { TicketsPage } from "./pages/Tickets";
+import { ToolsPage } from "./pages/Tools";
 
-type Tab = "home" | "projects" | "org" | "tickets" | "budgets" | "approvals" | "audit";
+type Tab = "home" | "projects" | "org" | "tickets" | "budgets" | "approvals" | "audit" | "tools";
 
 const NAV: {
   group: string;
@@ -32,6 +33,7 @@ const NAV: {
     group: "Governance",
     items: [
       { key: "budgets", label: "Budgets" },
+      { key: "tools", label: "Tool gateway" },
       { key: "approvals", label: "Approvals", badgeKey: "approvals" },
       { key: "audit", label: "Audit" },
     ],
@@ -111,6 +113,7 @@ export default function App() {
           <TicketsPage onWorkflowChange={() => refreshPending().catch(console.error)} />
         )}
         {tab === "budgets" && <BudgetsPage />}
+        {tab === "tools" && <ToolsPage />}
         {tab === "approvals" && (
           <ApprovalsPage onApprovalsChange={() => refreshPending().catch(console.error)} />
         )}

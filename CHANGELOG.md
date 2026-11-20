@@ -3,7 +3,10 @@
 ## Unreleased
 
 ### Added
+- **Ticket reviewer agent** (`reviewer_agent_id`, reviewer wake + `heartbeat_mode: review`)
 - **Company monthly budget ceiling** (Paperclip org cap): migration, scheduler block, Budgets + Dashboard UI
+- **Ticket reviewer** agent (`reviewer_agent_id`, review heartbeat, UI)
+- **Tool gateway stub** (allow/ask/block policies, evaluate API, Tools UI)
 - Boardroom UI (design tokens, PageHeader, KPI tiles, grouped nav)
 - Paperclip-aligned org **reports-to**, ticket **review gate** (`in_review`), adapter `ready_for_review` signals
 - [PAPERCLIP_PARITY.md](docs/PAPERCLIP_PARITY.md)

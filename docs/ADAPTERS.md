@@ -13,11 +13,14 @@ Adapters receive **one line** of JSON (`HeartbeatIn`) on stdin or HTTP POST body
     "mission": "…",
     "project": "Project name — goal",
     "agent_goal": null,
+    "heartbeat_mode": "review",
     "ticket": { "ticket_id": "uuid", "title": "…", "description": "…" }
   },
   "budget_remaining_usd": 42.5
 }
 ```
+
+`heartbeat_mode: "review"` is set when the designated **reviewer agent** is woken for a ticket in `in_review` (Paperclip-style review stage). The board still approves completion in the Loop UI.
 
 ## HeartbeatOut
 

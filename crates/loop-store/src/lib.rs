@@ -6,6 +6,7 @@ mod company;
 mod pool;
 mod project;
 mod ticket;
+mod tool_policy;
 
 pub use agent::{AgentRepository, HireAgentRequest};
 pub use approval::{ApprovalRepository, PendingApproval};
@@ -15,3 +16,4 @@ pub use company::CompanyRepository;
 pub use pool::Store;
 pub use project::{Project, ProjectRepository};
 pub use ticket::{Ticket, TicketMessage, TicketRepository};
+pub use tool_policy::{ToolPolicyRepository, ToolPolicyRow};

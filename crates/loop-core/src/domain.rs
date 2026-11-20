@@ -38,6 +38,9 @@ pub struct HeartbeatContext {
     pub project: Option<String>,
     pub agent_goal: Option<String>,
     pub ticket: Option<TicketSummary>,
+    /// When set to `review`, the agent is the designated reviewer for a ticket in `in_review`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heartbeat_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

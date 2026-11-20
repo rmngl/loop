@@ -23,13 +23,16 @@ Reference: [Paperclip key concepts](https://docs.paperclip.ing/guides/welcome/ke
 - **Task review gate** — agent or board submits work → `in_review`; board **Approve done** or **Request changes**; adapter may set `HeartbeatOut.status` to `ready_for_review`.
 - **Dashboard** — KPI for tickets awaiting review; **Tickets** nav badge when `in_review` > 0.
 - **Company monthly budget** — `companies.monthly_budget_usd`, Budgets UI, heartbeat block when org cap exhausted.
+- **Ticket reviewer** — `reviewer_agent_id`, default manager on submit-review, review heartbeat mode, assign-time override.
+- **Tool gateway stub** — `tool_policies` table, evaluate endpoint, Governance UI.
+- **Ticket reviewer** — `reviewer_agent_id`; defaults to assignee’s **Reports to** on submit; reviewer heartbeat with `context.heartbeat_mode: "review"`.
 - **API tests** — `ticket_review_gate` (submit → approve done; request changes).
 
 ## Deferred (intentionally local / post-cloud)
 
 | Paperclip | Loop stance |
 |-----------|-------------|
-| Tool gateway (MCP allow/ask/block) | Policy hooks only; full gateway post–local MVP |
+| Tool gateway (MCP allow/ask/block) | **Stub**: policies + evaluate API + UI; no MCP proxy yet ([TOOL_GATEWAY.md](TOOL_GATEWAY.md)) |
 | Skill Studio / shared skills | Adapter `skills_ref` in protocol; no studio UI |
 | Sandboxed runs / secrets vault | Process adapters + OS keychain (design spec) |
 | SSO / multi-human RBAC | Single local board user |

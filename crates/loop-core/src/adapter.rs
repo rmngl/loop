@@ -48,6 +48,7 @@ mod tests {
                 mission: "Build MVP".to_string(),
                 project: Some("Loop".to_string()),
                 agent_goal: None,
+                heartbeat_mode: None,
                 ticket: Some(crate::domain::TicketSummary {
                     ticket_id,
                     title: "Ship".to_string(),

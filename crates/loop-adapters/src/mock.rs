@@ -44,6 +44,7 @@ mod tests {
                     mission: "M".into(),
                     project: None,
                     agent_goal: None,
+                    heartbeat_mode: None,
                     ticket: None,
                 },
                 budget_remaining_usd: 5.0,

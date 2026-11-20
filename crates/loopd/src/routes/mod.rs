@@ -6,12 +6,13 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use loop_core::domain::{AdapterKind, AgentStatus, TicketStatus};
 use loop_core::error::LoopError;
-use loop_core::ids::{ApprovalId, CompanyId, ProjectId, TicketId};
+use loop_core::ids::{AgentId, ApprovalId, CompanyId, ProjectId, TicketId};
+use loop_core::tool_policy::ToolDisposition;
 use loop_store::{
     AgentRepository, ApprovalRepository, AuditLog, BudgetRepository, CompanyRepository,
-    HireAgentRequest, ProjectRepository, TicketRepository,
+    HireAgentRequest, ProjectRepository, TicketRepository, ToolPolicyRepository,
 };
-use loop_policy::PolicyEngine;
+use loop_policy::{PolicyEngine, ToolGateway};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -57,6 +58,10 @@ pub fn router() -> Router<Arc<AppState>> {
             post(assign_ticket),
         )
         .route(
+            "/v1/companies/{company_id}/tickets/{ticket_id}/reviewer",
+            post(set_ticket_reviewer),
+        )
+        .route(
             "/v1/companies/{company_id}/tickets/{ticket_id}/submit-review",
             post(submit_ticket_review),
         )
@@ -82,6 +87,18 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/v1/companies/{company_id}/budgets", get(list_budgets))
         .route("/v1/companies/{company_id}/audit", get(list_audit))
+        .route(
+            "/v1/companies/{company_id}/tool-policies",
+            get(list_tool_policies).post(upsert_tool_policy),
+        )
+        .route(
+            "/v1/companies/{company_id}/tool-policies/remove",
+            post(remove_tool_policy),
+        )
+        .route(
+            "/v1/companies/{company_id}/tools/evaluate",
+            post(evaluate_tool),
+        )
 }
 
 async fn health() -> Json<serde_json::Value> {
@@ -320,6 +337,7 @@ async fn list_tickets(
             "title": t.title,
             "status": ticket_status_str(&t.status),
             "assignee_agent_id": t.assignee_agent_id.map(|a| a.to_string()),
+            "reviewer_agent_id": t.reviewer_agent_id.map(|a| a.to_string()),
             "tags": t.tags,
         })).collect::<Vec<_>>()
     })))
@@ -347,6 +365,7 @@ async fn get_ticket(
             "description": ticket.description,
             "status": ticket_status_str(&ticket.status),
             "assignee_agent_id": ticket.assignee_agent_id.map(|a| a.to_string()),
+            "reviewer_agent_id": ticket.reviewer_agent_id.map(|a| a.to_string()),
             "tags": ticket.tags,
         },
         "messages": messages,
@@ -405,6 +424,13 @@ async fn create_ticket(
 #[derive(Deserialize)]
 struct AssignBody {
     agent_id: String,
+    reviewer_agent_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SetReviewerBody {
+    agent_id: Option<String>,
+    clear: Option<bool>,
 }
 
 async fn assign_ticket(
@@ -430,7 +456,22 @@ async fn assign_ticket(
     .can_execute_ticket(company_id, &before)
     .await?;
 
-    let _ticket = ticket_repo.assign(company_id, ticket_id, agent_id).await?;
+    ticket_repo.assign(company_id, ticket_id, agent_id).await?;
+
+    if let Some(ref rid) = body.reviewer_agent_id {
+        if rid.is_empty() {
+            ticket_repo
+                .set_reviewer(company_id, ticket_id, None)
+                .await?;
+        } else {
+            let reviewer_id = loop_core::ids::AgentId(
+                Uuid::parse_str(rid).map_err(|e| AppError(LoopError::Validation(e.to_string())))?,
+            );
+            ticket_repo
+                .set_reviewer(company_id, ticket_id, Some(reviewer_id))
+                .await?;
+        }
+    }
 
     state
         .scheduler()
@@ -438,6 +479,36 @@ async fn assign_ticket(
         .await;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn set_ticket_reviewer(
+    State(state): State<Arc<AppState>>,
+    Path((company_id, ticket_id)): Path<(String, String)>,
+    Json(body): Json<SetReviewerBody>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let company_id = parse_company(&company_id)?;
+    let ticket_id = parse_ticket_id(&ticket_id)?;
+    let repo = TicketRepository::new(&state.store);
+    let reviewer = if body.clear == Some(true) {
+        None
+    } else if let Some(ref aid) = body.agent_id {
+        if aid.is_empty() {
+            None
+        } else {
+            Some(loop_core::ids::AgentId(
+                Uuid::parse_str(aid).map_err(|e| AppError(LoopError::Validation(e.to_string())))?,
+            ))
+        }
+    } else {
+        return Err(AppError(LoopError::Validation(
+            "agent_id or clear required".into(),
+        )));
+    };
+    let ticket = repo.set_reviewer(company_id, ticket_id, reviewer).await?;
+    Ok(Json(serde_json::json!({
+        "ticket_id": ticket.id.to_string(),
+        "reviewer_agent_id": ticket.reviewer_agent_id.map(|a| a.to_string()),
+    })))
 }
 
 fn parse_ticket_id(s: &str) -> Result<TicketId, AppError> {
@@ -453,6 +524,21 @@ async fn submit_ticket_review(
     let company_id = parse_company(&company_id)?;
     let ticket_id = parse_ticket_id(&ticket_id)?;
     let repo = TicketRepository::new(&state.store);
+    let mut ticket = repo.get(company_id, ticket_id).await?;
+
+    if ticket.reviewer_agent_id.is_none() {
+        if let Some(assignee_id) = ticket.assignee_agent_id {
+            let assignee = AgentRepository::new(&state.store)
+                .get(company_id, assignee_id)
+                .await?;
+            if let Some(parent) = assignee.parent_agent_id {
+                ticket = repo
+                    .set_reviewer(company_id, ticket_id, Some(parent))
+                    .await?;
+            }
+        }
+    }
+
     let ticket = repo
         .set_status(
             company_id,
@@ -461,6 +547,7 @@ async fn submit_ticket_review(
             TicketStatus::InReview,
         )
         .await?;
+
     AuditLog::new(&state.store)
         .append(
             company_id,
@@ -468,9 +555,18 @@ async fn submit_ticket_review(
             serde_json::json!({
                 "ticket_id": ticket.id.to_string(),
                 "title": ticket.title,
+                "reviewer_agent_id": ticket.reviewer_agent_id.map(|a| a.to_string()),
             }),
         )
         .await?;
+
+    if let Some(reviewer_id) = ticket.reviewer_agent_id {
+        state
+            .scheduler()
+            .enqueue_ticket_wake(company_id, reviewer_id, ticket_id)
+            .await;
+    }
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -818,6 +914,110 @@ async fn request_budget_increase(
         .create_increase_budget(company_id, &agent_id, body.new_cap_usd)
         .await?;
     Ok(Json(serde_json::json!({ "approval_id": approval_id.to_string() })))
+}
+
+async fn list_tool_policies(
+    State(state): State<Arc<AppState>>,
+    Path(company_id): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let company_id = parse_company(&company_id)?;
+    let rows = ToolPolicyRepository::new(&state.store)
+        .list(company_id)
+        .await?;
+    Ok(Json(serde_json::json!({
+        "policies": rows.iter().map(|p| serde_json::json!({
+            "tool_pattern": p.tool_pattern,
+            "disposition": p.disposition.as_str(),
+        })).collect::<Vec<_>>()
+    })))
+}
+
+#[derive(Deserialize)]
+struct UpsertToolPolicyBody {
+    tool_pattern: String,
+    disposition: String,
+}
+
+async fn upsert_tool_policy(
+    State(state): State<Arc<AppState>>,
+    Path(company_id): Path<String>,
+    Json(body): Json<UpsertToolPolicyBody>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let company_id = parse_company(&company_id)?;
+    let disposition = ToolDisposition::parse(&body.disposition)
+        .ok_or_else(|| AppError(LoopError::Validation("disposition must be allow|ask|block".into())))?;
+    let row = ToolPolicyRepository::new(&state.store)
+        .upsert(company_id, &body.tool_pattern, disposition)
+        .await?;
+    AuditLog::new(&state.store)
+        .append(
+            company_id,
+            "tool_policy_upsert",
+            serde_json::json!({
+                "tool_pattern": row.tool_pattern,
+                "disposition": row.disposition.as_str(),
+            }),
+        )
+        .await?;
+    Ok(Json(serde_json::json!({
+        "tool_pattern": row.tool_pattern,
+        "disposition": row.disposition.as_str(),
+    })))
+}
+
+#[derive(Deserialize)]
+struct RemoveToolPolicyBody {
+    tool_pattern: String,
+}
+
+async fn remove_tool_policy(
+    State(state): State<Arc<AppState>>,
+    Path(company_id): Path<String>,
+    Json(body): Json<RemoveToolPolicyBody>,
+) -> Result<StatusCode, AppError> {
+    let company_id = parse_company(&company_id)?;
+    ToolPolicyRepository::new(&state.store)
+        .delete(company_id, &body.tool_pattern)
+        .await?;
+    AuditLog::new(&state.store)
+        .append(
+            company_id,
+            "tool_policy_removed",
+            serde_json::json!({ "tool_pattern": body.tool_pattern }),
+        )
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct EvaluateToolBody {
+    tool: String,
+    agent_id: Option<String>,
+}
+
+async fn evaluate_tool(
+    State(state): State<Arc<AppState>>,
+    Path(company_id): Path<String>,
+    Json(body): Json<EvaluateToolBody>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let company_id = parse_company(&company_id)?;
+    let agent_id = match body.agent_id {
+        Some(ref s) if !s.is_empty() => Some(AgentId(
+            Uuid::parse_str(s).map_err(|e| AppError(LoopError::Validation(e.to_string())))?,
+        )),
+        _ => None,
+    };
+    let result = ToolGateway::new(
+        ToolPolicyRepository::new(&state.store),
+        AuditLog::new(&state.store),
+    )
+    .evaluate(company_id, &body.tool, agent_id)
+    .await?;
+    Ok(Json(serde_json::json!({
+        "disposition": result.disposition.as_str(),
+        "matched_pattern": result.matched_pattern,
+        "allowed": result.disposition == ToolDisposition::Allow,
+    })))
 }
 
 fn agent_status_api(s: &AgentStatus) -> &'static str {

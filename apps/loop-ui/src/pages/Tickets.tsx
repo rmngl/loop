@@ -29,6 +29,7 @@ export function TicketsPage({ onWorkflowChange }: TicketsPageProps) {
   const [strategyTag, setStrategyTag] = useState(false);
   const [projectId, setProjectId] = useState("");
   const [boardMsg, setBoardMsg] = useState("");
+  const [reviewerPick, setReviewerPick] = useState("");
 
   const load = useCallback(async () => {
     if (!activeCompanyId) return;
@@ -52,6 +53,14 @@ export function TicketsPage({ onWorkflowChange }: TicketsPageProps) {
     const detail = await api.getTicket(activeCompanyId, id);
     setTraces(detail.traces);
     setMessages(detail.messages);
+    setReviewerPick(detail.ticket.reviewer_agent_id ?? "");
+  }
+
+  async function saveReviewer() {
+    if (!activeCompanyId || !selected) return;
+    await api.setTicketReviewer(activeCompanyId, selected, reviewerPick || null);
+    await load();
+    await openTicket(selected);
   }
 
   async function create() {
@@ -196,6 +205,36 @@ export function TicketsPage({ onWorkflowChange }: TicketsPageProps) {
                 ) : undefined
               }
             />
+            <div className="panel panel--inset" style={{ marginBottom: "1rem" }}>
+              <h3>Reviewer</h3>
+              <p className="muted" style={{ marginTop: 0, marginBottom: "0.75rem" }}>
+                Paperclip-style reviewer agent — woken on submit (defaults to assignee’s Reports to).
+              </p>
+              <div className="row">
+                <select
+                  aria-label="Reviewer agent"
+                  value={reviewerPick}
+                  onChange={(e) => setReviewerPick(e.target.value)}
+                >
+                  <option value="">Auto — manager on submit</option>
+                  {agents.map((a) => (
+                    <option key={a.agent_id} value={a.agent_id}>
+                      {a.title}
+                    </option>
+                  ))}
+                </select>
+                <button type="button" className="secondary" onClick={() => saveReviewer().catch(alert)}>
+                  Save reviewer
+                </button>
+              </div>
+              {selectedTicket?.reviewer_agent_id && (
+                <p className="muted" style={{ marginBottom: 0, marginTop: "0.5rem", fontSize: "0.85rem" }}>
+                  Active reviewer:{" "}
+                  {agents.find((a) => a.agent_id === selectedTicket.reviewer_agent_id)?.title ??
+                    selectedTicket.reviewer_agent_id.slice(0, 8)}
+                </p>
+              )}
+            </div>
             <div className="panel" style={{ marginBottom: "1rem" }}>
               <h3>Board thread</h3>
               <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>

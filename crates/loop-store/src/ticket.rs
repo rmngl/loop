@@ -7,7 +7,7 @@ use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::pool::Store;
+use crate::{AgentRepository, Store};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TicketMessage {
@@ -25,6 +25,7 @@ pub struct Ticket {
     pub description: String,
     pub status: TicketStatus,
     pub assignee_agent_id: Option<AgentId>,
+    pub reviewer_agent_id: Option<AgentId>,
     pub tags: Vec<String>,
 }
 
@@ -72,8 +73,40 @@ impl<'a> TicketRepository<'a> {
             description: description.to_string(),
             status: TicketStatus::Open,
             assignee_agent_id: None,
+            reviewer_agent_id: None,
             tags: tags.to_vec(),
         })
+    }
+
+    pub async fn set_reviewer(
+        &self,
+        company_id: CompanyId,
+        ticket_id: TicketId,
+        reviewer_agent_id: Option<AgentId>,
+    ) -> Result<Ticket> {
+        if let Some(rid) = reviewer_agent_id {
+            let agent = AgentRepository::new(self.store)
+                .get(company_id, rid)
+                .await?;
+            if agent.company_id != company_id {
+                return Err(LoopError::Validation("reviewer agent wrong company".into()));
+            }
+        }
+        let result = sqlx::query(
+            r#"
+            UPDATE tickets SET reviewer_agent_id = ?1 WHERE id = ?2 AND company_id = ?3
+            "#,
+        )
+        .bind(reviewer_agent_id.map(|a| a.to_string()))
+        .bind(ticket_id.to_string())
+        .bind(company_id.to_string())
+        .execute(self.store.pool())
+        .await
+        .map_err(|e| LoopError::Database(e.to_string()))?;
+        if result.rows_affected() == 0 {
+            return Err(LoopError::NotFound(format!("ticket {}", ticket_id)));
+        }
+        self.get(company_id, ticket_id).await
     }
 
     pub async fn list_messages(
@@ -171,7 +204,7 @@ impl<'a> TicketRepository<'a> {
     pub async fn list(&self, company_id: CompanyId) -> Result<Vec<Ticket>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, company_id, project_id, title, description, status, assignee_agent_id, tags
+            SELECT id, company_id, project_id, title, description, status, assignee_agent_id, reviewer_agent_id, tags
             FROM tickets WHERE company_id = ?1 ORDER BY created_at DESC
             "#,
         )
@@ -186,7 +219,7 @@ impl<'a> TicketRepository<'a> {
     pub async fn get(&self, company_id: CompanyId, ticket_id: TicketId) -> Result<Ticket> {
         let row = sqlx::query(
             r#"
-            SELECT id, company_id, project_id, title, description, status, assignee_agent_id, tags
+            SELECT id, company_id, project_id, title, description, status, assignee_agent_id, reviewer_agent_id, tags
             FROM tickets WHERE id = ?1 AND company_id = ?2
             "#,
         )
@@ -294,6 +327,7 @@ fn row_to_ticket(row: sqlx::sqlite::SqliteRow) -> Result<Ticket> {
     let status_str: String = row.try_get("status").map_err(|e| LoopError::Database(e.to_string()))?;
     let status = parse_ticket_status(&status_str);
     let assignee: Option<String> = row.try_get("assignee_agent_id").ok();
+    let reviewer: Option<String> = row.try_get("reviewer_agent_id").ok();
     let project: Option<String> = row.try_get("project_id").ok();
 
     Ok(Ticket {
@@ -322,6 +356,11 @@ fn row_to_ticket(row: sqlx::sqlite::SqliteRow) -> Result<Ticket> {
             .map_err(|e| LoopError::Database(e.to_string()))?,
         status,
         assignee_agent_id: assignee
+            .filter(|s| !s.is_empty())
+            .map(|s| Uuid::parse_str(&s).map(AgentId))
+            .transpose()
+            .map_err(|e| LoopError::Validation(e.to_string()))?,
+        reviewer_agent_id: reviewer
             .filter(|s| !s.is_empty())
             .map(|s| Uuid::parse_str(&s).map(AgentId))
             .transpose()
