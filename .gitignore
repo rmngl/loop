@@ -8,3 +8,4 @@ node_modules/
 apps/*/node_modules/
 apps/loop-desktop/src-tauri/target/
 apps/loop-ui/dist/
+*.tsbuildinfo
