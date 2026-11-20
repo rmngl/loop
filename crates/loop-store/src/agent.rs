@@ -36,6 +36,10 @@ impl<'a> AgentRepository<'a> {
             .parse()
             .map_err(|e| LoopError::Validation(format!("invalid cron: {e}")))?;
 
+        if let Some(parent_id) = req.parent_agent_id {
+            self.get(company_id, parent_id).await?;
+        }
+
         let agent_id = AgentId::new();
         let approval_id = ApprovalId::new();
         let now = Utc::now();

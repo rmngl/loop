@@ -1,8 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type PendingApprovalRow } from "../api/loopd";
+import { Badge } from "../components/Badge";
+import { EmptyState } from "../components/EmptyState";
+import { PageHeader } from "../components/PageHeader";
 import { useCompany } from "../context/CompanyContext";
 
-export function ApprovalsPage() {
+type Props = {
+  onApprovalsChange?: () => void;
+};
+
+function kindTone(kind: string): "default" | "warn" | "strategy" {
+  if (kind.includes("strategy")) return "strategy";
+  if (kind.includes("budget") || kind.includes("hire") || kind.includes("agent")) return "warn";
+  return "default";
+}
+
+export function ApprovalsPage({ onApprovalsChange }: Props) {
   const { activeCompanyId } = useCompany();
   const [rows, setRows] = useState<PendingApprovalRow[]>([]);
 
@@ -10,7 +23,8 @@ export function ApprovalsPage() {
     if (!activeCompanyId) return;
     const data = await api.listPendingApprovals(activeCompanyId);
     setRows(data.approvals);
-  }, [activeCompanyId]);
+    onApprovalsChange?.();
+  }, [activeCompanyId, onApprovalsChange]);
 
   useEffect(() => {
     load().catch(console.error);
@@ -22,43 +36,53 @@ export function ApprovalsPage() {
     await load();
   }
 
-  if (!activeCompanyId) return <p className="muted">Select a company.</p>;
+  if (!activeCompanyId) {
+    return (
+      <EmptyState title="Select a company" description="Choose a company in the sidebar to review the board queue." />
+    );
+  }
 
   return (
     <div>
-      <h2>Board approvals</h2>
-      <p className="muted">Pending hires, strategy tickets, and budget overrides appear here.</p>
-      <table className="panel" style={{ marginTop: "1rem" }}>
-        <thead>
-          <tr>
-            <th>Kind</th>
-            <th>Payload</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 && (
-            <tr>
-              <td colSpan={3} className="muted">
-                No pending approvals
-              </td>
-            </tr>
-          )}
-          {rows.map((r) => (
-            <tr key={r.approval_id}>
-              <td>{r.kind}</td>
-              <td>
-                <code style={{ fontSize: "0.75rem" }}>{JSON.stringify(r.payload)}</code>
-              </td>
-              <td>
-                <button type="button" onClick={() => approve(r.approval_id).catch(alert)}>
-                  Approve
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <PageHeader
+        title="Board approvals"
+        description="Pending hires, strategy tickets, and budget overrides await your sign-off before agents act."
+        actions={rows.length > 0 ? <Badge tone="pending">{rows.length} pending</Badge> : undefined}
+      />
+      <div className="panel">
+        {rows.length === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>
+            No pending approvals — the board is clear.
+          </p>
+        ) : (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Kind</th>
+                <th>Payload</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.approval_id}>
+                  <td>
+                    <Badge tone={kindTone(r.kind)}>{r.kind}</Badge>
+                  </td>
+                  <td>
+                    <code>{JSON.stringify(r.payload)}</code>
+                  </td>
+                  <td>
+                    <button type="button" onClick={() => approve(r.approval_id).catch(alert)}>
+                      Approve
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }

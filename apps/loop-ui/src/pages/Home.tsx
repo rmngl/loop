@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type DashboardStats } from "../api/loopd";
+import { EmptyState } from "../components/EmptyState";
+import { KpiTile } from "../components/KpiTile";
+import { PageHeader } from "../components/PageHeader";
 import { useCompany } from "../context/CompanyContext";
 
-export function HomePage() {
+type Props = {
+  onStatsChange?: () => void;
+};
+
+export function HomePage({ onStatsChange }: Props) {
   const { activeCompanyId, mission, refreshCompanies, setActiveCompanyId, companies } = useCompany();
   const [name, setName] = useState("");
   const [newMission, setNewMission] = useState("");
@@ -14,7 +21,8 @@ export function HomePage() {
   const loadStats = useCallback(async () => {
     if (!activeCompanyId) return;
     setStats(await api.dashboard(activeCompanyId));
-  }, [activeCompanyId]);
+    onStatsChange?.();
+  }, [activeCompanyId, onStatsChange]);
 
   useEffect(() => {
     setMissionEdit(mission ?? "");
@@ -51,8 +59,8 @@ export function HomePage() {
 
   async function archiveActiveCompany() {
     if (!activeCompanyId) return;
-    const name = companies.find((c) => c.id === activeCompanyId)?.name ?? "this company";
-    if (!confirm(`Archive "${name}"? Agents stop scheduling; data stays on disk.`)) return;
+    const companyName = companies.find((c) => c.id === activeCompanyId)?.name ?? "this company";
+    if (!confirm(`Archive "${companyName}"? Agents stop scheduling; data stays on disk.`)) return;
     await api.archiveCompany(activeCompanyId);
     const remaining = companies.filter((c) => c.id !== activeCompanyId && !c.archived);
     setActiveCompanyId(remaining[0]?.id ?? null);
@@ -61,37 +69,42 @@ export function HomePage() {
 
   if (!activeCompanyId) {
     return (
-      <div className="panel">
-        <h2>New company</h2>
-        <p className="muted">Create your first agent company to get started.</p>
-        <div className="row" style={{ marginTop: "1rem" }}>
-          <input placeholder="Company name" value={name} onChange={(e) => setName(e.target.value)} />
-          <input placeholder="Mission statement" value={newMission} onChange={(e) => setNewMission(e.target.value)} />
-          <button type="button" disabled={busy} onClick={createCompany}>
-            Create
-          </button>
-        </div>
-      </div>
+      <>
+        <PageHeader
+          title="Welcome"
+          description="Spin up your first agent company — mission, org, tickets, and board approvals on your machine."
+        />
+        <EmptyState title="No company yet" description="Name the company and state its mission. You can hire agents after board setup.">
+          <div className="row">
+            <input placeholder="Company name" value={name} onChange={(e) => setName(e.target.value)} />
+            <input placeholder="Mission statement" value={newMission} onChange={(e) => setNewMission(e.target.value)} />
+            <button type="button" disabled={busy} onClick={createCompany}>
+              Create company
+            </button>
+          </div>
+        </EmptyState>
+      </>
     );
   }
 
+  const activeName = companies.find((c) => c.id === activeCompanyId)?.name;
+
   return (
     <div>
-      <div className="panel">
-        <h2>Mission</h2>
+      <PageHeader
+        title={activeName ?? "Dashboard"}
+        description="Mission at a glance — agents, budget posture, governance queue, and open work."
+      />
+      <div className="panel panel--hero mission-hero">
+        <div className="mission-hero__label">Company mission</div>
         <textarea
-          rows={3}
+          rows={4}
           style={{ width: "100%" }}
           value={missionEdit}
           onChange={(e) => setMissionEdit(e.target.value)}
         />
-        <div className="row" style={{ marginTop: "0.75rem", gap: "0.5rem" }}>
-          <button
-            type="button"
-            className="secondary"
-            disabled={savingMission}
-            onClick={() => saveMission().catch(alert)}
-          >
+        <div className="row" style={{ marginTop: "0.85rem", gap: "0.5rem" }}>
+          <button type="button" disabled={savingMission} onClick={() => saveMission().catch(alert)}>
             Save mission
           </button>
           <button type="button" className="secondary" onClick={() => archiveActiveCompany().catch(alert)}>
@@ -100,23 +113,19 @@ export function HomePage() {
         </div>
       </div>
       {stats && (
-        <div className="row" style={{ marginTop: "1rem" }}>
-          <Stat label="Active agents" value={stats.agents_active} />
-          <Stat label="Budget stopped" value={stats.agents_paused_budget} warn={stats.agents_paused_budget > 0} />
-          <Stat label="Budget warn" value={stats.agents_budget_warn} warn={stats.agents_budget_warn > 0} />
-          <Stat label="Pending approvals" value={stats.pending_approvals} warn={stats.pending_approvals > 0} />
-          <Stat label="Open tickets" value={stats.open_tickets} />
+        <div className="kpi-grid">
+          <KpiTile label="Active agents" value={stats.agents_active} accent />
+          <KpiTile label="Budget stopped" value={stats.agents_paused_budget} warn={stats.agents_paused_budget > 0} />
+          <KpiTile label="Budget warn" value={stats.agents_budget_warn} warn={stats.agents_budget_warn > 0} />
+          <KpiTile label="Pending approvals" value={stats.pending_approvals} warn={stats.pending_approvals > 0} />
+          <KpiTile label="Open tickets" value={stats.open_tickets} />
+          <KpiTile
+            label="Awaiting review"
+            value={stats.tickets_in_review ?? 0}
+            warn={(stats.tickets_in_review ?? 0) > 0}
+          />
         </div>
       )}
-    </div>
-  );
-}
-
-function Stat({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
-  return (
-    <div className="panel" style={{ minWidth: 140 }}>
-      <div className="muted">{label}</div>
-      <div style={{ fontSize: "1.5rem", color: warn ? "#f87171" : undefined }}>{value}</div>
     </div>
   );
 }

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type AuditRow } from "../api/loopd";
+import { EmptyState } from "../components/EmptyState";
+import { PageHeader } from "../components/PageHeader";
 import { useCompany } from "../context/CompanyContext";
 
 export function AuditPage() {
@@ -16,12 +18,15 @@ export function AuditPage() {
     load().catch(console.error);
   }, [load]);
 
-  if (!activeCompanyId) return <p className="muted">Select a company.</p>;
+  if (!activeCompanyId) {
+    return <EmptyState title="Select a company" description="Append-only governance and system events per company." />;
+  }
 
   return (
     <div>
-      <h2>Audit log</h2>
-      <table className="panel" style={{ marginTop: "1rem" }}>
+      <PageHeader title="Audit log" description="Append-only record of hires, approvals, heartbeats, and system actions." />
+      <div className="panel">
+        <table className="data-table">
         <thead>
           <tr>
             <th>ID</th>
@@ -35,12 +40,13 @@ export function AuditPage() {
               <td>{e.id}</td>
               <td>{e.kind}</td>
               <td>
-                <code style={{ fontSize: "0.75rem" }}>{JSON.stringify(e.payload)}</code>
+                <code>{JSON.stringify(e.payload)}</code>
               </td>
             </tr>
           ))}
         </tbody>
-      </table>
+        </table>
+      </div>
     </div>
   );
 }

@@ -26,6 +26,8 @@ pub enum AdapterKind {
 pub enum TicketStatus {
     Open,
     InProgress,
+    /// Paperclip-style: agent finished; board must verify before done.
+    InReview,
     Done,
     Blocked,
 }

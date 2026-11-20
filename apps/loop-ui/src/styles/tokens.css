@@ -1,0 +1,42 @@
+:root {
+  color-scheme: dark;
+
+  --font-display: "Fraunces", "Iowan Old Style", "Palatino Linotype", serif;
+  --font-ui: "DM Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  --bg-canvas: #0a0b0f;
+  --bg-sidebar: #0e0f14;
+  --bg-elevated: #14161c;
+  --bg-inset: #101218;
+  --bg-hover: #1c1e26;
+
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  --text-primary: #f4f0e8;
+  --text-secondary: #a8a49a;
+  --text-muted: #6f6b63;
+
+  --accent: #e8a838;
+  --accent-hover: #f0b84a;
+  --accent-muted: rgba(232, 168, 56, 0.15);
+  --accent-glow: rgba(232, 168, 56, 0.25);
+
+  --semantic-success: #5cb88a;
+  --semantic-warn: #e8a838;
+  --semantic-danger: #e86a6a;
+  --semantic-strategy: #a78bfa;
+  --semantic-info: #6eb5d9;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  --shadow-panel: 0 1px 0 var(--border-subtle), 0 12px 40px rgba(0, 0, 0, 0.35);
+  --shadow-glow: 0 0 0 1px var(--accent-muted), 0 0 24px var(--accent-glow);
+
+  --sidebar-width: 252px;
+  --space-page: 2rem 2.5rem;
+}

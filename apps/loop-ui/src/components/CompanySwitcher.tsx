@@ -13,6 +13,7 @@ export const CompanySwitcher: FC<Props> = ({ companies, activeId, onChange }) =>
 
   return (
     <select
+      className="company-switcher"
       aria-label="Company switcher"
       value={value}
       onChange={(e) => onChange(e.target.value)}

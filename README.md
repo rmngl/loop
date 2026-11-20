@@ -6,6 +6,7 @@ Local-first **agent company operating system** (Rust): missions, projects, org c
 
 ## Docs
 
+- [Paperclip parity map](docs/PAPERCLIP_PARITY.md) (feature reference)
 - [Getting started](docs/GETTING_STARTED.md)
 - [Adapter protocol](docs/ADAPTERS.md)
 - [Design spec](docs/superpowers/specs/2026-11-20-loop-agent-company-os-design.md)

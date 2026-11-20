@@ -57,6 +57,18 @@ pub fn router() -> Router<Arc<AppState>> {
             post(assign_ticket),
         )
         .route(
+            "/v1/companies/{company_id}/tickets/{ticket_id}/submit-review",
+            post(submit_ticket_review),
+        )
+        .route(
+            "/v1/companies/{company_id}/tickets/{ticket_id}/approve-done",
+            post(approve_ticket_done),
+        )
+        .route(
+            "/v1/companies/{company_id}/tickets/{ticket_id}/request-changes",
+            post(request_ticket_changes),
+        )
+        .route(
             "/v1/companies/{company_id}/tickets/{ticket_id}/messages",
             get(list_ticket_messages).post(post_ticket_message),
         )
@@ -144,6 +156,7 @@ struct HireAgentBody {
     adapter_config: Option<serde_json::Value>,
     cron: String,
     monthly_budget_usd: f64,
+    parent_agent_id: Option<String>,
 }
 
 async fn hire_agent(
@@ -159,6 +172,12 @@ async fn hire_agent(
         "webhook" => AdapterKind::Webhook,
         _ => return Err(AppError(LoopError::Validation("unknown adapter_kind".into()))),
     };
+    let parent_agent_id = match body.parent_agent_id {
+        Some(ref s) if !s.is_empty() => Some(loop_core::ids::AgentId(
+            Uuid::parse_str(s).map_err(|e| AppError(LoopError::Validation(e.to_string())))?,
+        )),
+        _ => None,
+    };
     let (agent, approval_id) = AgentRepository::new(&state.store)
         .create_pending(
             company_id,
@@ -168,7 +187,7 @@ async fn hire_agent(
                 adapter_config: body.adapter_config.unwrap_or(serde_json::json!({})),
                 cron: body.cron,
                 monthly_budget_usd: body.monthly_budget_usd,
-                parent_agent_id: None,
+                parent_agent_id,
             },
         )
         .await?;
@@ -259,6 +278,7 @@ fn ticket_status_str(s: &TicketStatus) -> &'static str {
     match s {
         TicketStatus::Open => "open",
         TicketStatus::InProgress => "in_progress",
+        TicketStatus::InReview => "in_review",
         TicketStatus::Done => "done",
         TicketStatus::Blocked => "blocked",
     }
@@ -278,6 +298,7 @@ async fn list_agents(
             "status": agent_status_api(&a.status),
             "cron": a.cron,
             "monthly_budget_usd": a.monthly_budget_usd,
+            "parent_agent_id": a.parent_agent_id.map(|p| p.to_string()),
             "paused_reason": a.paused_reason,
         })).collect::<Vec<_>>()
     })))
@@ -413,6 +434,96 @@ async fn assign_ticket(
         .enqueue_ticket_wake(company_id, agent_id, ticket_id)
         .await;
 
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn parse_ticket_id(s: &str) -> Result<TicketId, AppError> {
+    Ok(TicketId(
+        Uuid::parse_str(s).map_err(|e| AppError(LoopError::Validation(e.to_string())))?,
+    ))
+}
+
+async fn submit_ticket_review(
+    State(state): State<Arc<AppState>>,
+    Path((company_id, ticket_id)): Path<(String, String)>,
+) -> Result<StatusCode, AppError> {
+    let company_id = parse_company(&company_id)?;
+    let ticket_id = parse_ticket_id(&ticket_id)?;
+    let repo = TicketRepository::new(&state.store);
+    let ticket = repo
+        .set_status(
+            company_id,
+            ticket_id,
+            &[TicketStatus::InProgress],
+            TicketStatus::InReview,
+        )
+        .await?;
+    AuditLog::new(&state.store)
+        .append(
+            company_id,
+            "ticket_submitted_for_review",
+            serde_json::json!({
+                "ticket_id": ticket.id.to_string(),
+                "title": ticket.title,
+            }),
+        )
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn approve_ticket_done(
+    State(state): State<Arc<AppState>>,
+    Path((company_id, ticket_id)): Path<(String, String)>,
+) -> Result<StatusCode, AppError> {
+    let company_id = parse_company(&company_id)?;
+    let ticket_id = parse_ticket_id(&ticket_id)?;
+    let repo = TicketRepository::new(&state.store);
+    let ticket = repo
+        .set_status(
+            company_id,
+            ticket_id,
+            &[TicketStatus::InReview],
+            TicketStatus::Done,
+        )
+        .await?;
+    AuditLog::new(&state.store)
+        .append(
+            company_id,
+            "ticket_review_approved",
+            serde_json::json!({
+                "ticket_id": ticket.id.to_string(),
+                "title": ticket.title,
+            }),
+        )
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn request_ticket_changes(
+    State(state): State<Arc<AppState>>,
+    Path((company_id, ticket_id)): Path<(String, String)>,
+) -> Result<StatusCode, AppError> {
+    let company_id = parse_company(&company_id)?;
+    let ticket_id = parse_ticket_id(&ticket_id)?;
+    let repo = TicketRepository::new(&state.store);
+    let ticket = repo
+        .set_status(
+            company_id,
+            ticket_id,
+            &[TicketStatus::InReview],
+            TicketStatus::InProgress,
+        )
+        .await?;
+    AuditLog::new(&state.store)
+        .append(
+            company_id,
+            "ticket_review_changes_requested",
+            serde_json::json!({
+                "ticket_id": ticket.id.to_string(),
+                "title": ticket.title,
+            }),
+        )
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -587,6 +698,7 @@ async fn dashboard(
         "agents_budget_warn": budget_warn,
         "pending_approvals": pending,
         "open_tickets": tickets.iter().filter(|t| t.status == TicketStatus::Open || t.status == TicketStatus::InProgress).count(),
+        "tickets_in_review": tickets.iter().filter(|t| t.status == TicketStatus::InReview).count(),
     })))
 }
 

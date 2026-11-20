@@ -21,6 +21,14 @@ Adapters receive **one line** of JSON (`HeartbeatIn`) on stdin or HTTP POST body
 
 ## HeartbeatOut
 
+`status` is usually `"ok"`. To enter a **Paperclip-style review gate**, return one of:
+
+- `ready_for_review`
+- `awaiting_review`
+- `in_review`
+
+When the assigned ticket is `in_progress`, Loop moves it to `in_review` and appends an audit event. The board completes the ticket from the UI.
+
 ```json
 {
   "status": "ok",

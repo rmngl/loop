@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type ProjectRow } from "../api/loopd";
+import { EmptyState } from "../components/EmptyState";
+import { PageHeader } from "../components/PageHeader";
 import { useCompany } from "../context/CompanyContext";
 
 export function ProjectsPage() {
@@ -26,12 +28,16 @@ export function ProjectsPage() {
     await load();
   }
 
-  if (!activeCompanyId) return <p className="muted">Select a company.</p>;
+  if (!activeCompanyId) {
+    return <EmptyState title="Select a company" description="Projects align tickets to initiatives under the mission." />;
+  }
 
   return (
     <div>
-      <h2>Projects</h2>
-      <p className="muted">Initiatives under the company mission. Tickets can link to a project for alignment.</p>
+      <PageHeader
+        title="Projects"
+        description="Initiatives under the company mission. Tickets can link to a project for heartbeat context."
+      />
       <div className="panel" style={{ marginBottom: "1rem" }}>
         <input placeholder="Project name" value={name} onChange={(e) => setName(e.target.value)} style={{ width: "100%" }} />
         <input

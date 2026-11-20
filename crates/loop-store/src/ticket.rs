@@ -110,6 +110,38 @@ impl<'a> TicketRepository<'a> {
             .collect()
     }
 
+    pub async fn set_status(
+        &self,
+        company_id: CompanyId,
+        ticket_id: TicketId,
+        from: &[TicketStatus],
+        to: TicketStatus,
+    ) -> Result<Ticket> {
+        let ticket = self.get(company_id, ticket_id).await?;
+        if !from.contains(&ticket.status) {
+            return Err(LoopError::Validation(format!(
+                "ticket status {:?}, expected one of {:?}",
+                ticket.status, from
+            )));
+        }
+        let status_str = status_to_str(&to);
+        let result = sqlx::query(
+            r#"
+            UPDATE tickets SET status = ?1 WHERE id = ?2 AND company_id = ?3
+            "#,
+        )
+        .bind(status_str)
+        .bind(ticket_id.to_string())
+        .bind(company_id.to_string())
+        .execute(self.store.pool())
+        .await
+        .map_err(|e| LoopError::Database(e.to_string()))?;
+        if result.rows_affected() == 0 {
+            return Err(LoopError::NotFound(format!("ticket {}", ticket_id)));
+        }
+        self.get(company_id, ticket_id).await
+    }
+
     pub async fn assign(
         &self,
         company_id: CompanyId,
@@ -260,13 +292,7 @@ fn row_to_ticket(row: sqlx::sqlite::SqliteRow) -> Result<Ticket> {
     let tags_str: String = row.try_get("tags").unwrap_or_else(|_| "[]".into());
     let tags: Vec<String> = serde_json::from_str(&tags_str).unwrap_or_default();
     let status_str: String = row.try_get("status").map_err(|e| LoopError::Database(e.to_string()))?;
-    let status = match status_str.as_str() {
-        "open" => TicketStatus::Open,
-        "in_progress" => TicketStatus::InProgress,
-        "done" => TicketStatus::Done,
-        "blocked" => TicketStatus::Blocked,
-        _ => TicketStatus::Open,
-    };
+    let status = parse_ticket_status(&status_str);
     let assignee: Option<String> = row.try_get("assignee_agent_id").ok();
     let project: Option<String> = row.try_get("project_id").ok();
 
@@ -302,4 +328,25 @@ fn row_to_ticket(row: sqlx::sqlite::SqliteRow) -> Result<Ticket> {
             .map_err(|e| LoopError::Validation(e.to_string()))?,
         tags,
     })
+}
+
+fn parse_ticket_status(status_str: &str) -> TicketStatus {
+    match status_str {
+        "open" => TicketStatus::Open,
+        "in_progress" => TicketStatus::InProgress,
+        "in_review" => TicketStatus::InReview,
+        "done" => TicketStatus::Done,
+        "blocked" => TicketStatus::Blocked,
+        _ => TicketStatus::Open,
+    }
+}
+
+fn status_to_str(s: &TicketStatus) -> &'static str {
+    match s {
+        TicketStatus::Open => "open",
+        TicketStatus::InProgress => "in_progress",
+        TicketStatus::InReview => "in_review",
+        TicketStatus::Done => "done",
+        TicketStatus::Blocked => "blocked",
+    }
 }

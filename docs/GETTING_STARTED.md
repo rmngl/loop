@@ -45,7 +45,7 @@ Override with `LOOP_DB_PATH`, `LOOP_DATA_DIR`, `LOOPD_BIN`, `LISTEN_ADDR`.
 1. **Mission** — Create a company with a mission statement. Dashboard shows agents, budget alerts, pending approvals, open tickets.
 2. **Projects** — Add initiatives; link tickets to projects so heartbeats include project goal context.
 3. **Org chart** — Hire an agent (mock for testing; hermes/process/webhook for real runs). Approve the hire under **Approvals** (required; Org does not auto-approve). Hermes live steps: [HERMES_E2E.md](HERMES_E2E.md).
-4. **Tickets** — Create work items, optionally tag **strategy** (requires approval before assign). Assign to an active agent; post **Board** messages; inspect **Trace** after heartbeat.
+4. **Tickets** — One assignee per ticket (Paperclip-style ownership). Assign → work in **in_progress** → **Submit for review** (or adapter `ready_for_review` on heartbeat) → board **Approve done**. Strategy tag still needs approval before assign. See [PAPERCLIP_PARITY.md](PAPERCLIP_PARITY.md).
 5. **Budgets** — Monthly caps per agent; 80% warn, 100% hard stop. Request a cap increase → approve on **Approvals**.
 6. **Audit** — Append-only log of governance and system events.
 

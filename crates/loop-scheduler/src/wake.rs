@@ -258,6 +258,34 @@ impl<'a> Scheduler<'a> {
             ticket_repo
                 .append_trace_events(job.company_id, tid, &out.trace_events)
                 .await?;
+            let review_signal = matches!(
+                out.status.as_str(),
+                "ready_for_review" | "awaiting_review" | "in_review"
+            );
+            if review_signal {
+                let ticket = ticket_repo.get(job.company_id, tid).await?;
+                if ticket.status == loop_core::domain::TicketStatus::InProgress {
+                    let _ = ticket_repo
+                        .set_status(
+                            job.company_id,
+                            tid,
+                            &[loop_core::domain::TicketStatus::InProgress],
+                            loop_core::domain::TicketStatus::InReview,
+                        )
+                        .await;
+                    AuditLog::new(self.store)
+                        .append(
+                            job.company_id,
+                            "ticket_submitted_for_review",
+                            serde_json::json!({
+                                "ticket_id": tid.to_string(),
+                                "source": "adapter_heartbeat",
+                                "adapter_status": out.status,
+                            }),
+                        )
+                        .await?;
+                }
+            }
         }
 
         let budget = BudgetRepository::new(self.store)

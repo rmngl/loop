@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type BudgetRow } from "../api/loopd";
+import { Badge } from "../components/Badge";
+import { EmptyState } from "../components/EmptyState";
+import { PageHeader } from "../components/PageHeader";
 import { useCompany } from "../context/CompanyContext";
 
 export function BudgetsPage() {
@@ -28,17 +31,19 @@ export function BudgetsPage() {
     await load();
   }
 
-  if (!activeCompanyId) return <p className="muted">Select a company.</p>;
+  if (!activeCompanyId) {
+    return <EmptyState title="Select a company" description="Monthly agent caps and board-approved increases." />;
+  }
 
   const totalCap = rows.reduce((s, r) => s + r.cap_usd, 0);
   const totalRemaining = rows.reduce((s, r) => s + r.remaining_usd, 0);
 
   return (
     <div>
-      <h2>Budgets</h2>
-      <p className="muted">
-        Total remaining ${totalRemaining.toFixed(2)} / ${totalCap.toFixed(2)} monthly caps
-      </p>
+      <PageHeader
+        title="Budgets"
+        description={`Remaining $${totalRemaining.toFixed(2)} of $${totalCap.toFixed(2)} in monthly caps — 80% warn, 100% hard stop.`}
+      />
       <div className="panel" style={{ marginTop: "1rem", marginBottom: "1rem" }}>
         <h3>Request cap increase</h3>
         <div className="row">
@@ -55,7 +60,8 @@ export function BudgetsPage() {
           </button>
         </div>
       </div>
-      <table className="panel">
+      <div className="panel">
+        <table className="data-table">
         <thead>
           <tr>
             <th>Agent</th>
@@ -74,14 +80,15 @@ export function BudgetsPage() {
                 <td>${r.remaining_usd.toFixed(2)}</td>
                 <td>${r.cap_usd.toFixed(2)}</td>
                 <td>
-                  {r.paused_reason ?? "—"}
-                  {pct >= 80 && pct < 100 && " (warn)"}
+                  {r.paused_reason ? <Badge tone="danger">{r.paused_reason}</Badge> : "—"}
+                  {pct >= 80 && pct < 100 && !r.paused_reason && <Badge tone="warn">80%+ used</Badge>}
                 </td>
               </tr>
             );
           })}
         </tbody>
-      </table>
+        </table>
+      </div>
     </div>
   );
 }

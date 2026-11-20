@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Boardroom UI (design tokens, PageHeader, KPI tiles, grouped nav)
+- Paperclip-aligned org **reports-to**, ticket **review gate** (`in_review`), adapter `ready_for_review` signals
+- [PAPERCLIP_PARITY.md](docs/PAPERCLIP_PARITY.md)
+
 ## 1.0.0 — 2026-11-20 (local desktop)
 
 ### Added

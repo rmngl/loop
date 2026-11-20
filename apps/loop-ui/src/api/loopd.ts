@@ -59,6 +59,7 @@ export const api = {
       cron: string;
       monthly_budget_usd: number;
       adapter_config?: Record<string, unknown>;
+      parent_agent_id?: string | null;
     }
   ) {
     const res = await fetch(companyPath(DEFAULT_BASE, companyId, "/agents"), {
@@ -100,6 +101,30 @@ export const api = {
       body: JSON.stringify({ title, description, tags, project_id: projectId }),
     });
     return json<{ ticket_id: string; strategy_approval_id?: string }>(res);
+  },
+
+  async submitTicketReview(companyId: string, ticketId: string) {
+    const res = await fetch(
+      companyPath(DEFAULT_BASE, companyId, `/tickets/${ticketId}/submit-review`),
+      { method: "POST" }
+    );
+    if (!res.ok) throw new Error(await res.text());
+  },
+
+  async approveTicketDone(companyId: string, ticketId: string) {
+    const res = await fetch(
+      companyPath(DEFAULT_BASE, companyId, `/tickets/${ticketId}/approve-done`),
+      { method: "POST" }
+    );
+    if (!res.ok) throw new Error(await res.text());
+  },
+
+  async requestTicketChanges(companyId: string, ticketId: string) {
+    const res = await fetch(
+      companyPath(DEFAULT_BASE, companyId, `/tickets/${ticketId}/request-changes`),
+      { method: "POST" }
+    );
+    if (!res.ok) throw new Error(await res.text());
   },
 
   async assignTicket(companyId: string, ticketId: string, agentId: string) {
@@ -194,6 +219,7 @@ export type AgentRow = {
   status: string;
   cron: string;
   monthly_budget_usd: number;
+  parent_agent_id?: string | null;
   paused_reason: string | null;
 };
 
@@ -217,6 +243,7 @@ export type DashboardStats = {
   agents_budget_warn: number;
   pending_approvals: number;
   open_tickets: number;
+  tickets_in_review?: number;
 };
 
 export type BudgetRow = {
