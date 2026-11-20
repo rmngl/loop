@@ -11,6 +11,7 @@
 - Cron heartbeats (60s tick), ticket assign wake (30s debounce), monthly budget hard stop
 - Company archive, mission PATCH, dashboard stats
 - Docs: GETTING_STARTED, ADAPTERS, HERMES_E2E; `make verify`, `make dev-stack`, `make desktop-build`
+- GitHub Actions CI (`make verify`); `scripts/hermes-standin.sh` + `make hermes-smoke`
 
 ### Fixed
 - Hire flow no longer auto-approves in UI (board must use Approvals)

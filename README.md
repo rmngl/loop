@@ -30,9 +30,10 @@ Desktop release smoke: `make desktop-build`
 ## Tests
 
 ```bash
-make test
-cd apps/loop-ui && npm test && npm run build
+make verify
 ```
+
+CI runs `make verify` on push/PR to `main`. Hermes stand-in API smoke (loopd running): `make hermes-smoke`
 
 ## Workspace layout
 

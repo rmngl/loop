@@ -1,4 +1,4 @@
-.PHONY: test build loopd ui desktop desktop-build health
+.PHONY: test build loopd ui desktop desktop-build health hermes-smoke
 
 export PATH := $(HOME)/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$(PATH)
 
@@ -30,3 +30,6 @@ verify: test ui-test
 
 dev-stack:
 	./scripts/dev-stack.sh
+
+hermes-smoke:
+	./scripts/hermes-e2e-smoke.sh

@@ -53,7 +53,20 @@ Expect HTTP 200 and trace persisted (check ticket trace in UI or store).
 
 ## Stand-in for CI / no Hermes install
 
-Use the echo fixture pattern from `crates/loop-adapters/tests/fixtures/echo_adapter.rs` as a `process` adapter, or wrap it in a shell script named `hermes` that handles `loop-heartbeat`.
+Repo script (Hermes hire + `loop-heartbeat` argv):
+
+```bash
+chmod +x scripts/hermes-standin.sh
+# Org → Hermes binary: /absolute/path/to/loop/scripts/hermes-standin.sh
+```
+
+One-shot API smoke (loopd must be running):
+
+```bash
+make hermes-smoke
+```
+
+Alternatively use `crates/loop-adapters/tests/fixtures/echo_adapter.rs` as a `process` adapter.
 
 ## Failure modes
 
