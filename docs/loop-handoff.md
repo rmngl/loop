@@ -178,9 +178,9 @@ Getting there meant finding the defect in section 9:
 
 **Agent → channel (2026-11-21):** `scripts/agent-channel-smoke.mjs` — publish path OK.
 **Pi mention (2026-11-21):** `scripts/agent-mention-turn.mjs` — roster + `relay_sign`
-mention with `p` tag; Pi run starts, timeline may show **Couldn't finish** until the
-Smoke agent uses a provider that works here (e.g. Cursor in agent settings; keys in
-`~/.pi/agent/auth.json`).
+mention with `p` tag; Pi run starts. **Couldn't finish** = Pi provider not ready —
+run `node scripts/agent-mention-prereq.mjs` in the fork (needs Cursor **SDK** API key,
+`pi auth login --provider cursor`). Full script: `scripts/loop-agent-e2e.ps1`.
 
 **Push (2026-11-21):** `loop` `main` is thousands of commits behind
 `origin/main`, so `git push origin main` was rejected. Handoff docs are on
