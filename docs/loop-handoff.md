@@ -176,10 +176,11 @@ Getting there meant finding the defect in section 9:
 - `/query` carries window pages and a relay-signed `39006` (`has_more:false`);
 - the "agent inventory read failed" warnings on every launch are gone.
 
-**Agent → channel (2026-11-21):** `scripts/agent-channel-smoke.mjs` in the fork
-proves `app_agent_create` + `app_agent_publish` on `https://loop.localhost` with
-the running `loop.exe` (message visible in #일반). Still unverified: a **Pi harness**
-turn that reads the channel and replies (needs a provider API key in Pi auth).
+**Agent → channel (2026-11-21):** `scripts/agent-channel-smoke.mjs` — publish path OK.
+**Pi mention (2026-11-21):** `scripts/agent-mention-turn.mjs` — roster + `relay_sign`
+mention with `p` tag; Pi run starts, timeline may show **Couldn't finish** until the
+Smoke agent uses a provider that works here (e.g. Cursor in agent settings; keys in
+`~/.pi/agent/auth.json`).
 
 **Push (2026-11-21):** `loop` `main` is thousands of commits behind
 `origin/main`, so `git push origin main` was rejected. Handoff docs are on
