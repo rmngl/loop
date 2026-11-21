@@ -163,8 +163,9 @@ Two instruments, both cheap and both kept:
 
 ## 5. What is not done
 
-**Task 12 — acceptance + `docs/loop-local-backend.md`.** This is the next work
-item and the only one in the plan.
+**Task 12 — acceptance + `docs/loop-local-backend.md`.** Recorded in the fork
+(`loop-app/docs/loop-local-backend.md`, 2026-11-21). Crate tests 66/66;
+`loop.exe` rebuilt and smoke-tested 2026-11-21 (ProductName **loop**).
 
 **Tasks 9, 10, 11 are VERIFIED in the running app** (2026-11-16, fresh profile).
 Getting there meant finding the defect in section 9:
@@ -179,12 +180,8 @@ Still unverified: **a live agent turn** — an agent in the channel reading it a
 replying. The seams exist (`app_agent_query` / `app_agent_publish`) and have unit
 coverage, but no real agent has spoken in a real channel yet.
 
-**OS-visible name is still Buzz.** `Buzz.exe`, `Buzz Foundation` in file
-properties, install folder `%LOCALAPPDATA%\Buzz Foundation`. Cause:
-`productName` in `tauri.windows.conf.json` and `tauri.linux.conf.json`
-overrides `tauri.conf.json`. Fix needs `productName: "loop"`,
-`mainBinaryName: "loop"`, and the 8 files / 18 lines that hardcode `Buzz.exe` /
-`Buzz.app`, changed together. It installs in parallel, not as an upgrade.
+**OS-visible name.** Resolved in fork Task 12: `loop.exe`, ProductName **loop**.
+Installs in parallel, not as an upgrade over Buzz Foundation.
 
 **Media (M3)** — upload, ranged and unranged fetch. The plan deliberately
 deferred it: M2's deliverable is a text answer and unobservable work cannot be
