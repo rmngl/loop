@@ -180,6 +180,20 @@ Still unverified: **a live agent turn** — an agent in the channel reading it a
 replying. The seams exist (`app_agent_query` / `app_agent_publish`) and have unit
 coverage, but no real agent has spoken in a real channel yet.
 
+**Push (2026-11-21):** `loop` `main` is thousands of commits behind
+`origin/main`, so `git push origin main` was rejected. Handoff docs are on
+`origin/handoff/task12-loop-exe`
+(`f44c7ed3b`). Fork `git push origin-private local-backend` failed with
+`Repository not found` — check GitHub access to private `rmngl/loop-app` (this
+machine has no `gh` CLI).
+
+**Agent E2E prep (2026-11-21):** Pi plugin enabled in
+`%APPDATA%\xyz.block.buzz.desktop\profiles\default\registry.json`
+(`buzz.pi: true`). CDP confirms create-agent UI lists **Pi**; completing a turn
+still needs a provider API key in Pi auth (none in this shell's environment).
+Use `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` and
+`node .scratch-agent-turn.mjs` in the fork clone to repeat the UI probe.
+
 **OS-visible name.** Resolved in fork Task 12: `loop.exe`, ProductName **loop**.
 Installs in parallel, not as an upgrade over Buzz Foundation.
 
